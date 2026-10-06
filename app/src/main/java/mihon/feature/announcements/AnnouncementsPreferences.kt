@@ -27,6 +27,6 @@ class AnnouncementsPreferences(private val preferenceStore: PreferenceStore) {
 
     fun autoRefresh() = preferenceStore.getEnum(
         "announcements_auto_refresh",
-        AnnouncementAutoRefresh.OFF,
+        AnnouncementAutoRefresh.ONE_DAY,
     )
 }

@@ -32,6 +32,7 @@ import tachiyomi.domain.anime.model.Anime
 import tachiyomi.domain.source.service.SourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import eu.kanade.util.DuplicatePrevention
 import java.util.concurrent.Executors
 
 abstract class SearchScreenModel(
@@ -162,9 +163,11 @@ abstract class SearchScreenModel(
                             source.getSearchAnime(1, query, FilterList())
                         }
 
-                        val titles = page.animes.map {
-                            networkToLocalAnime.await(it.toDomainAnime(source.id))
-                        }
+                        val titles = DuplicatePrevention.deduplicateAnimeList(
+                            page.animes.map {
+                                networkToLocalAnime.await(it.toDomainAnime(source.id))
+                            }
+                        )
 
                         if (isActive) {
                             updateItem(source, SearchItemResult.Success(titles))

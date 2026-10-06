@@ -27,6 +27,7 @@ import tachiyomi.presentation.core.util.collectAsState as collectAsStatePref
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import tachiyomi.domain.anime.model.asAnimeCover
+import eu.kanade.util.DuplicatePrevention
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -39,7 +40,10 @@ fun GlobalSearchCardRow(
     onLongClick: (Anime) -> Unit,
     selection: List<Anime> = emptyList(),
 ) {
-    if (titles.isEmpty()) {
+    // Defensive dedup before rendering (step 14): prevent duplicate Compose keys
+    val uniqueTitles = DuplicatePrevention.deduplicateAnimeList(titles)
+
+    if (uniqueTitles.isEmpty()) {
         EmptyResultItem()
         return
     }
@@ -52,8 +56,8 @@ fun GlobalSearchCardRow(
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
     ) {
         items(
-            items = titles,
-            key = { "gs-${it.id}" },
+            items = uniqueTitles,
+            key = { DuplicatePrevention.composeKeyForAnime(it) },
         ) { it: tachiyomi.domain.anime.model.Anime ->
             val animeState = getAnime(it)
             val title by animeState
@@ -62,7 +66,7 @@ fun GlobalSearchCardRow(
                 title = title.title,
                 cover = title.asAnimeCover(),
                 isFavorite = title.favorite,
-                isSelected = selection.any { it.id == title.id },
+                isSelected = selection.any { DuplicatePrevention.canonicalAnimeIdentity(it) == DuplicatePrevention.canonicalAnimeIdentity(title) },
                 onClick = { onClick(title) },
                 onLongClick = { onLongClick(title) },
                 width = if (entry == eu.kanade.presentation.anime.components.AnimeCover.Panorama) 160.dp else 96.dp,

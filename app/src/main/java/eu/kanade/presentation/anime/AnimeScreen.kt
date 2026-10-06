@@ -716,7 +716,7 @@ private fun AnimeScreenSmallImpl(
                                                         ) {
                                                             itemsIndexed(
                                                                 items = combinedItems,
-                                                                key = { _, anime: tachiyomi.domain.anime.model.Anime -> "suggestion-small-${anime.id}" },
+                                                                key = { _, anime: tachiyomi.domain.anime.model.Anime -> "suggestion-small-${anime.source}-${anime.id}" },
                                                             ) { _, anime: tachiyomi.domain.anime.model.Anime ->
                                                                 SuggestionItem(
                                                                     anime = anime,
@@ -1209,7 +1209,7 @@ fun AnimeScreenLargeImpl(
                                                             ) {
                                                                 itemsIndexed(
                                                                     items = combinedItems,
-                                                                    key = { _, anime: tachiyomi.domain.anime.model.Anime -> "suggestion-large-${anime.id}" },
+                                                                    key = { _, anime: tachiyomi.domain.anime.model.Anime -> "suggestion-large-${anime.source}-${anime.id}" },
                                                                 ) { _, anime: tachiyomi.domain.anime.model.Anime ->
                                                                     SuggestionItem(
                                                                         anime = anime,

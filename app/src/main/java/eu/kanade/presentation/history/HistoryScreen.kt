@@ -149,7 +149,12 @@ private fun HistoryScreenContent(
         if (useContainer) {
             items(
                 items = history,
-                key = { "history-${it.hashCode()}" },
+                key = { model ->
+                    when (model) {
+                        is eu.kanade.presentation.history.HistoryUiModel.Header -> "history-header-${model.date}"
+                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.animeId}-${model.item.seenAt}"
+                    }
+                },
                 contentType = {
                     when (it) {
                         is HistoryUiModel.Header -> "history_header"
@@ -190,7 +195,12 @@ private fun HistoryScreenContent(
         } else {
             items(
                 items = history,
-                key = { "history-${it.hashCode()}" },
+                key = { model ->
+                    when (model) {
+                        is eu.kanade.presentation.history.HistoryUiModel.Header -> "history-header-${model.date}"
+                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.animeId}-${model.item.seenAt}"
+                    }
+                },
                 contentType = { "history" },
             ) { model ->
                 when (model) {
