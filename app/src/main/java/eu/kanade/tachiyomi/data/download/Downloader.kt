@@ -478,12 +478,15 @@ class Downloader(
     private fun detectEngineType(video: Video): String {
         return when {
             video.videoUrl.startsWith("magnet") || video.videoUrl.endsWith(".torrent") -> "Torrent"
+            // ANZ -->
+            // Multi-track streams (separate video and audio tracks) must use DASH/FFmpeg muxing
+            video.audioTracks.isNotEmpty() -> "DASH"
+            // ANZ <--
             video.videoUrl.contains(".m3u8") || 
             video.videoUrl.contains("/oppai/") || 
             video.videoUrl.contains("/proxy/oppai/") -> "HLS"
             video.videoUrl.contains(".mpd") || 
-            (video.videoUrl.contains("/playback/") && !video.videoUrl.contains(".mp4")) || 
-            video.audioTracks.isNotEmpty() -> "DASH"
+            (video.videoUrl.contains("/playback/") && !video.videoUrl.contains(".mp4")) -> "DASH"
             else -> "Normal"
         }
     }
@@ -514,7 +517,9 @@ class Downloader(
         try {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             
-            val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true) "mp4" else "mkv"
+            // ANZ -->
+            val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true && download.engineType != "DASH") "mp4" else "mkv"
+            // ANZ <--
             val mergedFile = File(sandboxDir, "$videoFilename.tmp")
 
             // RECOVERY: Handle interrupted FINALIZING state
@@ -656,7 +661,9 @@ class Downloader(
         notifyProgress(download)
 
         val videoFilename = DiskUtil.buildValidFilename(download.episode.name)
-        val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true) "mp4" else "mkv"
+        // ANZ -->
+        val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true && download.engineType != "DASH") "mp4" else "mkv"
+        // ANZ <--
         val finalName = "$videoFilename.$finalExt"
 
         // Create temporary episode directory
@@ -1300,9 +1307,11 @@ class Downloader(
         }
 
         val headers = video.headers ?: download.source.headers
-        val headerOptions = headers.joinToString("", "-headers '", "'") {
+        // ANZ -->
+        val headerOptions = if (headers.size == 0) "" else headers.joinToString("", "-headers '", "'") {
             "${it.first}: ${it.second}\r\n"
         }
+        // ANZ <--
 
         val ffmpegOptions = getFFmpegOptions(video, headerOptions, ffmpegFilename)
 
@@ -1323,6 +1332,12 @@ class Downloader(
             val now = System.currentTimeMillis()
             val outTime = (s.time / 1000.0).toLong()
             
+            // ANZ -->
+            if (download.totalDuration <= 0 && download.episode.totalSeconds > 0) {
+                download.totalDuration = download.episode.totalSeconds
+            }
+            // ANZ <--
+
             // Estimation: If we have duration and bitrate, estimate final size
             if (download.totalSize <= 0 && download.totalDuration > 0 && s.bitrate > 0) {
                 download.totalSize = (download.totalDuration * s.bitrate / 8).toLong()
@@ -1375,7 +1390,9 @@ class Downloader(
     private fun getFFmpegOptions(video: Video, headerOptions: String, ffmpegFilename: String): Array<String> {
         fun formatInputs(tracks: List<Track>) = tracks.joinToString(" ", postfix = " ") {
             buildList {
-                if (it.url.startsWith("http")) add(headerOptions)
+                // ANZ -->
+                if (it.url.startsWith("http") && headerOptions.isNotBlank()) add(headerOptions)
+                // ANZ <--
                 add("-i")
                 add("\"${it.url}\"")
             }.joinToString(" ")
@@ -1386,7 +1403,9 @@ class Downloader(
         val audioMetadata = video.audioTracks.mapIndexed { i, t -> "-metadata:s:a:$i \"title=${t.lang}\"" }.joinToString(" ")
 
         val command = listOf(
-            if (video.videoUrl.startsWith("http")) headerOptions else "",
+            // ANZ -->
+            if (video.videoUrl.startsWith("http") && headerOptions.isNotBlank()) headerOptions else "",
+            // ANZ <--
             "-i \"${video.videoUrl}\"", audioInputs,
             "-map 0:v", audioMaps, "-map 0:a?",
             "-f matroska -c:a copy -c:v copy",
