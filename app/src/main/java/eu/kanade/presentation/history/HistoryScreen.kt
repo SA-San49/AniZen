@@ -152,7 +152,7 @@ private fun HistoryScreenContent(
                 key = { model ->
                     when (model) {
                         is eu.kanade.presentation.history.HistoryUiModel.Header -> "history-header-${model.date}"
-                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.animeId}-${model.item.seenAt}"
+                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.id}"
                     }
                 },
                 contentType = {
@@ -198,7 +198,7 @@ private fun HistoryScreenContent(
                 key = { model ->
                     when (model) {
                         is eu.kanade.presentation.history.HistoryUiModel.Header -> "history-header-${model.date}"
-                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.animeId}-${model.item.seenAt}"
+                        is eu.kanade.presentation.history.HistoryUiModel.Item -> "history-item-${model.item.id}"
                     }
                 },
                 contentType = { "history" },
