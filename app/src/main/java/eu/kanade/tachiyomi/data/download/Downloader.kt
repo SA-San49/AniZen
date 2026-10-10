@@ -1360,6 +1360,18 @@ class Downloader(
         store.update(download)
 
         val logCallback = LogCallback { log ->
+            // ANZ -->
+            if (download.totalDuration <= 0L && log.message.contains("Duration:")) { // ANZ
+                val match = Regex("""Duration:\s*(\d+):(\d+):(\d+\.?\d*)""").find(log.message)
+                if (match != null) {
+                    val (h, m, s) = match.destructured
+                    val totalSec = h.toLong() * 3600 + m.toLong() * 60 + s.toDouble().toLong()
+                    if (totalSec > 0) {
+                        download.totalDuration = totalSec
+                    }
+                }
+            }
+            // ANZ <--
             if (log.level <= Level.AV_LOG_WARNING) {
                 logcat(LogPriority.ERROR) { "FFmpeg: ${log.message}" }
             }
@@ -1380,7 +1392,7 @@ class Downloader(
             
             if (download.totalDuration > 0 && outTime > 0) {
                 val timeProgress = (100 * outTime / download.totalDuration).toInt().coerceIn(0, 100)
-                if (download.progress <= 0 || timeProgress > download.progress) {
+                if (timeProgress > 0) {
                     download.progress = timeProgress
                 }
             }
