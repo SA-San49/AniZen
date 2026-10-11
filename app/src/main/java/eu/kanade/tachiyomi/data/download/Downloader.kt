@@ -1363,7 +1363,8 @@ class Downloader(
             }
         }
 
-        val dashThreads = getThreadCount().coerceIn(3, 16)
+        val host = Uri.parse(video.videoUrl).host ?: ""
+        val dashThreads = calculateDynamicConcurrency(host).coerceIn(3, 16)
         val ffmpegOptions = getFFmpegOptions(video, headerString, ffmpegFilename, dashThreads)
 
         // Initial UI State
