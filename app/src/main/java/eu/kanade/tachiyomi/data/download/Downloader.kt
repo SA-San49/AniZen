@@ -1412,15 +1412,7 @@ class Downloader(
                 }
             }
 
-            // Estimate total size using duration and ffmpeg's actual processing bitrate
-            if (download.totalDuration > 0 && s.bitrate > 0) {
-                val estimatedBytes = (download.totalDuration * (s.bitrate * 1000.0) / 8.0).toLong()
-                if (estimatedBytes > s.size) {
-                    download.totalSize = estimatedBytes
-                }
-            }
-
-            download.update(s.size, download.totalSize, false)
+            download.update(s.size, -1L, false)
             
             if (download.totalDuration > 0 && outTime > 0) {
                 val timeProgress = (100 * outTime / download.totalDuration).toInt().coerceIn(0, 99)

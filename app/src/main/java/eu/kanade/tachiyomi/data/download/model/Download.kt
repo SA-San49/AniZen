@@ -158,6 +158,12 @@ data class Download(
                 val remainingBytes = totalSize - bytesRead
                 val remainingSeconds = (remainingBytes / smoothSpeed).toLong().coerceAtLeast(0L)
                 eta = formatRemainingTime(remainingSeconds)
+            } else if (totalDuration > 0 && progress > 0 && smoothSpeed > 0) { // ANZ
+                val downloadedFraction = (progress / 100.0).coerceIn(0.01, 1.0)
+                val estimatedTotal = bytesRead / downloadedFraction
+                val remainingBytes = (estimatedTotal - bytesRead).toLong().coerceAtLeast(0L)
+                val remainingSeconds = (remainingBytes / smoothSpeed).toLong().coerceAtLeast(0L)
+                eta = formatRemainingTime(remainingSeconds)
             } else {
                 eta = ""
             }
