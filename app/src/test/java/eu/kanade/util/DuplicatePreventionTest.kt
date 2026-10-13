@@ -72,13 +72,13 @@ class DuplicatePreventionTest {
         val a = makeAnime(1, 1)
         val b = makeAnime(2, 1)
         val c = makeAnime(3, 1)
-        val d = makeAnime(2, 1) // overlap with page 2
+        val d = makeAnime(4, 1)
         val page1 = listOf(a, b, c)
         val page2 = listOf(c, d)
         val combined = page1 + page2
         val unique = DuplicatePrevention.deduplicateAnimeList(combined)
-        assertEquals(4, unique.size) // A, B, C, D
-        assertEquals(listOf(1L, 2L, 3L, 4L).map { it }.toString(), unique.map { it.id }.joinToString())
+        assertEquals(4, unique.size)
+        assertEquals(listOf(1L, 2L, 3L, 4L), unique.map { it.id })
     }
 
     @Test
