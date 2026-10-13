@@ -1491,7 +1491,7 @@ class PlayerActivity : BaseActivity() {
         finish()
     }
 
-    private fun parseVideoUrl(videoUrl: String?): String? {
+    private fun parseVideoUrl(videoUrl: String): String {
         return Uri.parse(videoUrl).resolveUri(this)
             ?: videoUrl
     }

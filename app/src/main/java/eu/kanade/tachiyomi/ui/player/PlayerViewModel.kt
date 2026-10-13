@@ -697,7 +697,7 @@ class PlayerViewModel @JvmOverloads constructor(
             val time = MPVLib.getPropertyInt("chapter-list/$i/time")!!
             chapters.add(
                 IndexedSegment(
-                    name = title,
+                    name = title.orEmpty(),
                     start = time.toFloat(),
                     index = 0,
                 ),
@@ -1183,7 +1183,7 @@ class PlayerViewModel @JvmOverloads constructor(
 
     val maxVolume = activity.audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
     fun changeVolumeBy(change: Int) {
-        val mpvVol = MPVLib.getPropertyInt("volume")
+        val mpvVol = MPVLib.getPropertyInt("volume") ?: 100
         val sysVol = currentVolume.value
 
         if (change > 0) { // Increasing

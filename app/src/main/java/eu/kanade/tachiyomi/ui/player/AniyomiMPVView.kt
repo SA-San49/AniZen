@@ -334,7 +334,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
 
     fun onKey(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_MULTIPLE || KeyEvent.isModifierKey(event.keyCode)) return false
-        var mapped = KeyMapping.map.get(event.keyCode)
+        var mapped = KeyMapping[event.keyCode]
         if (mapped == null) {
             if (!event.isPrintingKey) return false
             val ch = event.unicodeChar
