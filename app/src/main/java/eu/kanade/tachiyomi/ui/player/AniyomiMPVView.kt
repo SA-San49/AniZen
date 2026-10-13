@@ -20,10 +20,10 @@ package eu.kanade.tachiyomi.ui.player
 import android.content.Context
 import android.os.Build
 import android.os.Environment
-import android.view.Surface
 import android.util.AttributeSet
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import android.view.SurfaceHolder
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.ui.player.controls.components.panels.toColorHexString
@@ -40,6 +40,7 @@ import eu.kanade.tachiyomi.util.system.findActivity
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.KeyMapping
 import `is`.xyz.mpv.MPVLib
+import `is`.xyz.mpv.MPV
 import logcat.LogPriority
 import logcat.logcat
 import uy.kohesive.injekt.injectLazy
@@ -59,6 +60,64 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
     var isExiting = false
     var initialized = false
     private var lastAdaptiveCheckTime = 0L
+    private var surfaceAttached = false
+
+    fun initialize(
+        configDir: String,
+        cacheDir: String,
+        logLvl: String = "v",
+        vo: String = "gpu",
+    ) {
+        if (mpv?.isInitialized == true) return
+
+        val engine = MPV(context) { player ->
+            mpv = player
+            MPVLib.bind(player)
+
+            player.setOptionString("config", "yes")
+            player.setOptionString("config-dir", configDir)
+            player.setOptionString("gpu-shader-cache-dir", cacheDir)
+            player.setOptionString("icc-cache-dir", cacheDir)
+            player.setOptionString("msg-level", "all=$logLvl")
+            player.setOptionString("force-window", "no")
+            initOptions(vo)
+        }
+        mpv = engine
+
+        initialized = true
+        postInitOptions()
+        observeProperties()
+
+        if (holder.surface.isValid) surfaceCreated(holder)
+    }
+
+    fun destroy() {
+        holder.removeCallback(this)
+        if (surfaceAttached) surfaceDestroyed(holder)
+
+        initialized = false
+        mpv?.let { engine ->
+            MPVLib.unbind(engine)
+            engine.close()
+        }
+        mpv = null
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        if (surfaceAttached || mpv?.isInitialized != true) return
+        super.surfaceCreated(holder)
+        surfaceAttached = true
+        val frame = holder.surfaceFrame
+        if (frame.width() > 0 && frame.height() > 0) {
+            mpv?.setPropertyString("android-surface-size", "${frame.width()}x${frame.height()}")
+        }
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        if (!surfaceAttached) return
+        super.surfaceDestroyed(holder)
+        surfaceAttached = false
+    }
 
     private fun getPropertyInt(property: String): Int? {
         if (!initialized) return null
@@ -182,11 +241,10 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         }
     }
 
-    override fun initOptions(vo: String) {
-        initialized = true
+    fun initOptions(vo: String) {
         setVo(if (decoderPreferences.gpuNext().get()) "gpu-next" else "gpu")
         
-        MPVLib.setPropertyBoolean("pause", true)
+        MPVLib.setOptionString("pause", "yes")
         MPVLib.setOptionString("profile", "fast")
         // Prefer the copy path: it avoids handing the decoder a surface that can
         // disappear during Activity/GPU teardown, while retaining a hardware path.
@@ -218,7 +276,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         }
 
         MPVLib.setOptionString("msg-level", "all=" + if (networkPreferences.verboseLogging().get()) "v" else "warn")
-        MPVLib.setPropertyBoolean("input-default-bindings", true)
+        MPVLib.setOptionString("input-default-bindings", "yes")
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("ytdl", "no")
         MPVLib.setOptionString("cookies", "yes")
@@ -249,13 +307,13 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         setupAudioOptions()
     }
 
-    override fun observeProperties() {
+    fun observeProperties() {
         for ((name, format) in observedProps) MPVLib.observeProperty(name, format)
     }
 
     var onPlayerReady: (() -> Unit)? = null
 
-    override fun postInitOptions() {
+    fun postInitOptions() {
         // Options configured during init can be replaced by mpv's runtime defaults.
         // Re-apply the persisted subtitle values as properties after initialization,
         // before the first file is loaded.
