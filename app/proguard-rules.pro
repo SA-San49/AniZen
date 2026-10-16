@@ -4,6 +4,9 @@
 -repackageclasses ''
 
 # Protect extension compatibility classes
+# ANZ -->
+-keep class eu.kanade.tachiyomi.animesource.model.** { *; }
+# ANZ <--
 -keep class **$DefaultImpls { *; }
 
 #-dontobfuscate

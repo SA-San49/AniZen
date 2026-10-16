@@ -4,6 +4,7 @@ import android.net.Uri
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import okhttp3.Headers
 
 @Serializable
@@ -41,6 +42,7 @@ open class Video(
     val ffmpegVideoArgs: List<Pair<String, String>> = emptyList(),
     val internalData: String = "",
     val initialized: Boolean = false,
+    val memo: JsonObject = JsonObject.EMPTY,
 ) {
 
     var type: VideoType = VideoType.VIDEO
@@ -92,6 +94,41 @@ open class Video(
         this.videoPageUrl = url
     }
 
+    // Ext lib 16 constructor
+    @Deprecated("Used only for compatibility with ext lib 16, do not use", level = DeprecationLevel.HIDDEN)
+    constructor(
+        videoUrl: String = "",
+        videoTitle: String = "",
+        resolution: Int? = null,
+        bitrate: Int? = null,
+        headers: Headers? = null,
+        preferred: Boolean = false,
+        subtitleTracks: List<Track> = emptyList(),
+        audioTracks: List<Track> = emptyList(),
+        timestamps: List<TimeStamp> = emptyList(),
+        mpvArgs: List<Pair<String, String>> = emptyList(),
+        ffmpegStreamArgs: List<Pair<String, String>> = emptyList(),
+        ffmpegVideoArgs: List<Pair<String, String>> = emptyList(),
+        internalData: String = "",
+        initialized: Boolean = false,
+    ) : this(
+        videoUrl = videoUrl,
+        videoTitle = videoTitle,
+        resolution = resolution,
+        bitrate = bitrate,
+        headers = headers,
+        preferred = preferred,
+        subtitleTracks = subtitleTracks,
+        audioTracks = audioTracks,
+        timestamps = timestamps,
+        mpvArgs = mpvArgs,
+        ffmpegStreamArgs = ffmpegStreamArgs,
+        ffmpegVideoArgs = ffmpegVideoArgs,
+        internalData = internalData,
+        initialized = initialized,
+        memo = JsonObject.EMPTY,
+    )
+
     @Transient
     @Volatile
     var status: State = State.QUEUE
@@ -121,6 +158,7 @@ open class Video(
         ffmpegVideoArgs: List<Pair<String, String>> = this.ffmpegVideoArgs,
         internalData: String = this.internalData,
         initialized: Boolean = this.initialized,
+        memo: JsonObject = this.memo,
     ): Video {
         return Video(
             videoUrl = videoUrl,
@@ -137,6 +175,7 @@ open class Video(
             ffmpegVideoArgs = ffmpegVideoArgs,
             internalData = internalData,
             initialized = initialized,
+            memo = memo,
         ).also {
             it.type = this.type
             it.mimeType = this.mimeType
@@ -159,6 +198,7 @@ open class Video(
         ffmpegVideoArgs: List<Pair<String, String>> = this.ffmpegVideoArgs,
         internalData: String = this.internalData,
         initialized: Boolean = this.initialized,
+        memo: JsonObject = this.memo,
         type: VideoType = this.type,
         mimeType: String? = this.mimeType,
         videoPageUrl: String = this.videoPageUrl,
@@ -178,10 +218,52 @@ open class Video(
             ffmpegVideoArgs = ffmpegVideoArgs,
             internalData = internalData,
             initialized = initialized,
+            memo = memo,
         ).also {
             it.type = type
             it.mimeType = mimeType
             it.videoPageUrl = videoPageUrl
+        }
+    }
+
+    // Ext lib 16 copy video
+    @Deprecated("Used only for compatibility with ext lib 16, do not use", level = DeprecationLevel.HIDDEN)
+    fun copy(
+        videoUrl: String = this.videoUrl,
+        videoTitle: String = this.videoTitle,
+        resolution: Int? = this.resolution,
+        bitrate: Int? = this.bitrate,
+        headers: Headers? = this.headers,
+        preferred: Boolean = this.preferred,
+        subtitleTracks: List<Track> = this.subtitleTracks,
+        audioTracks: List<Track> = this.audioTracks,
+        timestamps: List<TimeStamp> = this.timestamps,
+        mpvArgs: List<Pair<String, String>> = this.mpvArgs,
+        ffmpegStreamArgs: List<Pair<String, String>> = this.ffmpegStreamArgs,
+        ffmpegVideoArgs: List<Pair<String, String>> = this.ffmpegVideoArgs,
+        internalData: String = this.internalData,
+        initialized: Boolean = this.initialized,
+    ): Video {
+        return Video(
+            videoUrl = videoUrl,
+            videoTitle = videoTitle,
+            resolution = resolution,
+            bitrate = bitrate,
+            headers = headers,
+            preferred = preferred,
+            subtitleTracks = subtitleTracks,
+            audioTracks = audioTracks,
+            timestamps = timestamps,
+            mpvArgs = mpvArgs,
+            ffmpegStreamArgs = ffmpegStreamArgs,
+            ffmpegVideoArgs = ffmpegVideoArgs,
+            internalData = internalData,
+            initialized = initialized,
+            memo = this.memo,
+        ).also {
+            it.type = this.type
+            it.mimeType = this.mimeType
+            it.videoPageUrl = this.videoPageUrl
         }
     }
 
@@ -213,6 +295,7 @@ data class SerializableVideo(
     val ffmpegVideoArgs: List<Pair<String, String>> = emptyList(),
     val internalData: String = "",
     val initialized: Boolean = false,
+    val memo: JsonObject = JsonObject.EMPTY,
     val type: VideoType = VideoType.VIDEO,
     var mimeType: String? = null,
     // TODO(1.6): Remove after ext lib bump
@@ -238,6 +321,7 @@ data class SerializableVideo(
                         vid.ffmpegVideoArgs,
                         vid.internalData,
                         vid.initialized,
+                        vid.memo,
                         vid.type,
                         vid.mimeType,
                         vid.videoPageUrl,
@@ -265,6 +349,7 @@ data class SerializableVideo(
                         sVid.ffmpegVideoArgs,
                         sVid.internalData,
                         sVid.initialized,
+                        sVid.memo,
                     ).apply {
                         type = sVid.type
                         mimeType = sVid.mimeType
