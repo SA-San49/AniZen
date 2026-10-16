@@ -81,7 +81,7 @@ import eu.kanade.tachiyomi.databinding.PlayerLayoutBinding
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.source.isNsfw
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.torrentServer.TorrentServerApi
 import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
@@ -1498,12 +1498,15 @@ class PlayerActivity : BaseActivity() {
 
     private fun setHttpOptions(video: Video) {
         if (viewModel.isEpisodeOnline() != true) return
-        val source = viewModel.currentSource.value as? HttpSource ?: return
+        val source = viewModel.currentSource.value as? AnimeHttpSource
 
-        val headers = (video.headers ?: source.headers)
+        val rawHeaders = video.headers ?: source?.headers ?: return
+        val headers = rawHeaders
             .toMultimap()
             .mapValues { it.value.firstOrNull() ?: "" }
             .toMutableMap()
+
+        if (headers.isEmpty()) return
 
         if (headers["User-Agent"].isNullOrEmpty()) {
             headers["User-Agent"] = networkHelper.defaultUserAgentProvider()

@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.data.connections.discord.PlayerData
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.isNsfw
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -341,7 +342,7 @@ class ExternalIntents {
      */
     private fun addVideoHeaders(isSupportedPlayer: Boolean, video: Video, intent: Intent): Intent {
         return intent.apply {
-            val headers = video.headers ?: (source as? HttpSource)?.headers
+            val headers = video.headers ?: (source as? AnimeHttpSource)?.headers ?: (source as? HttpSource)?.headers
             if (headers != null) {
                 var headersArray = arrayOf<String>()
                 val uaHeader = headers.find { it.first.equals("User-Agent", ignoreCase = true) }
