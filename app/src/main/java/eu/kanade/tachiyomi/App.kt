@@ -137,6 +137,10 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             }
             initializeMigrator()
 
+            // Re-arm Schedule tab alerts (force-stop/updates wipe AlarmManager) and keep followed
+            // series syncing their next episode even if the Schedule tab is never opened.
+            runCatching { mihon.feature.airingschedule.notification.ScheduleNotifications.restore(this@App) }
+
             // Eagerly initialize expensive singletons on background thread
             Injekt.get<Database>()
             val uiPreferences = Injekt.get<UiPreferences>()

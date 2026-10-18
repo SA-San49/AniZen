@@ -264,7 +264,9 @@ class LibraryUpdateNotifier(
                                         entry.mediaId,
                                         entry.episode,
                                     )
-                                    mihon.feature.airingschedule.notification.ScheduleNotifications.cancel(
+                                    // Cancels the alert, consumes a single-episode bell and
+                                    // keeps a followed series armed for its next episode.
+                                    mihon.feature.airingschedule.notification.ScheduleNotifications.markHandledEarly(
                                         context,
                                         entry,
                                     )

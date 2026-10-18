@@ -311,6 +311,19 @@
             android:name="mihon.feature.airingschedule.notification.ScheduleAlarmReceiver"
             android:exported="false" />
 
+        <!-- Restores Schedule tab alerts after reboot, app update, clock change or exact-alarm
+             permission re-grant (all of which clear AlarmManager). -->
+        <receiver
+            android:name="mihon.feature.airingschedule.notification.ScheduleBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".data.updater.AppUpdateBroadcast"
             android:exported="false">

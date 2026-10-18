@@ -37,9 +37,14 @@ class ScheduleAlarmReceiver : BroadcastReceiver() {
         val coverUrl = intent.getStringExtra(EXTRA_COVER_URL)
         if (mediaId == -1 || episode == -1) return
 
-        // Remove the alarm key from the scheduled set first, before the async notification work.
-        // All key-set mutations go through ScheduleNotifications so they are serialized.
-        ScheduleNotifications.removeAlarmKey(mediaId, episode)
+        val totalEpisodes = intent.getIntExtra(EXTRA_TOTAL_EPISODES, -1).takeIf { it > 0 }
+
+        // Bookkeeping first, before the async notification work: drop the fired alarm, consume a
+        // single-episode bell and, for a followed series, arm the next episode (or end the
+        // subscription after the final one). All mutations go through ScheduleNotifications so
+        // they are serialized.
+        runCatching { ScheduleNotifications.onAlarmFired(context.applicationContext, mediaId, episode, totalEpisodes) }
+            .onFailure { ScheduleNotifications.removeAlarmKey(mediaId, episode) }
 
         // Cover-art loading is async (network/disk); use goAsync() so the receiver's process
         // isn't killed before the notification is actually posted. goAsync() only grants a
@@ -153,6 +158,7 @@ class ScheduleAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_TITLE_ROMAJI = "title_romaji"
         const val EXTRA_TITLE_NATIVE = "title_native"
         const val EXTRA_COVER_URL = "cover_url"
+        const val EXTRA_TOTAL_EPISODES = "total_episodes"
         private const val COVER_LOAD_TIMEOUT_MS = 6_000L
     }
 }

@@ -119,10 +119,24 @@ class SchedulePreferences(
         emptySet(),
     )
 
-    /** Composite "mediaId:episode" keys for which an alarm has already been scheduled. */
+    /**
+     * Legacy composite "mediaId:episode" keys for alarms scheduled by older builds. New alarms
+     * are tracked in [pendingScheduleAlarms]; this set is only read so old alarms can still be
+     * cancelled after an update.
+     */
     fun scheduledAlarmKeys() = preferenceStore.getStringSet(
         "schedule_scheduled_alarm_keys",
         emptySet(),
+    )
+
+    /**
+     * JSON map of "mediaId:episode" -> pending alarm (full schedule entry + trigger time).
+     * Persisting the whole entry lets alarms be re-registered after a reboot, force-stop,
+     * app update or upload-delay change, without needing the weekly schedule to be loaded.
+     */
+    fun pendingScheduleAlarms() = preferenceStore.getString(
+        "schedule_pending_alarms_v2",
+        "{}",
     )
 
     companion object {

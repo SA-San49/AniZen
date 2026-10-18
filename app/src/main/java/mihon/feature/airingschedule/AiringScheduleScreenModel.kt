@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mihon.feature.airingschedule.components.BellNotifyState
+import eu.kanade.tachiyomi.util.system.toast
+import mihon.feature.airingschedule.notification.AiringAlertSyncWorker
+import mihon.feature.airingschedule.notification.AniListNextEpisodeLookup
 import mihon.feature.airingschedule.notification.ScheduleNotifications
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.domain.anime.interactor.GetLibraryAnime
@@ -95,7 +98,13 @@ class AiringScheduleScreenModel(
                 schedulePrefs.customUploadDelayMinutes().changes(),
                 schedulePrefs.sourceUploadDelays().changes(),
                 schedulePrefs.viewMode().changes(),
+                schedulePrefs.uploadDelayEnabled().changes(),
+                // Bell state can change in the background (alert fired, series finished).
+                schedulePrefs.notifyOnceMediaIds().changes(),
+                schedulePrefs.notifySeriesMediaIds().changes(),
             ) { _ -> Unit }.collectLatest {
+                // Upload-delay settings move the countdown, so move armed alerts with it.
+                withIOContext { runCatching { ScheduleNotifications.rearmAll(application) } }
                 val titleLanguage = schedulePrefs.titleLanguage().get()
                 val primarySource = schedulePrefs.primarySource().get()
                 if (titleLanguage != lastTitleLanguage || primarySource != lastPrimarySource) {
@@ -467,47 +476,110 @@ class AiringScheduleScreenModel(
         }
     }
 
-    /** Toggles a single alert for the next upcoming episode of this anime. */
+    /**
+     * Single tap on the bell.
+     * - Off  -> alert once, when this episode's local countdown reaches zero (or the next upcoming
+     *           episode if this one already aired).
+     * - Once -> turn the alert off.
+     * - Every episode -> step down to a single alert for the next episode.
+     */
     fun toggleNotifyOnce(entry: AiringScheduleEntry) {
-        val key = entry.mediaId.toString()
-        val current = schedulePrefs.notifyOnceMediaIds().get()
-        val seriesCurrent = schedulePrefs.notifySeriesMediaIds().get()
-        if (key in current) {
-            schedulePrefs.notifyOnceMediaIds().set(current - key)
-            ScheduleNotifications.cancel(application, entry)
-        } else {
-            // Only persist the "notify" preference if an alarm was actually scheduled —
-            // an already-aired entry has nothing to back the bell state, so don't leave a
-            // stuck ONCE indicator with no alarm behind it.
-            if (ScheduleNotifications.ensureScheduled(application, entry)) {
-                schedulePrefs.notifyOnceMediaIds().set(current + key)
-                schedulePrefs.notifySeriesMediaIds().set(seriesCurrent - key)
-            }
+        val mediaId = entry.mediaId
+        val title = entry.displayTitle(schedulePrefs.titleLanguage().get())
+        if (ScheduleNotifications.isOnce(mediaId) && !ScheduleNotifications.isSeries(mediaId)) {
+            ScheduleNotifications.setOnce(mediaId, false)
+            ScheduleNotifications.cancelAllForMedia(application, mediaId)
+            application.toast("Alert cancelled for $title")
+            applyFilters()
+            return
         }
+
+        val wasSeries = ScheduleNotifications.isSeries(mediaId)
+        screenModelScope.launch {
+            val target = resolveNextAlertTarget(entry)
+            if (wasSeries) {
+                ScheduleNotifications.setSeries(mediaId, false)
+                if (ScheduleNotifications.seriesMediaIds().isEmpty()) {
+                    AiringAlertSyncWorker.cancelAll(application)
+                }
+            }
+            ScheduleNotifications.cancelAllForMedia(application, mediaId)
+            if (target != null && ScheduleNotifications.ensureScheduled(application, target)) {
+                ScheduleNotifications.setOnce(mediaId, true)
+                application.toast(
+                    if (wasSeries) {
+                        "Stopped alerts for every episode. You'll still be notified for episode ${target.episode}"
+                    } else {
+                        "You'll be notified when episode ${target.episode} of $title airs"
+                    },
+                )
+            } else {
+                ScheduleNotifications.setOnce(mediaId, false)
+                application.toast(
+                    if (wasSeries) "Alerts turned off for $title" else "No upcoming episode of $title to notify about",
+                )
+            }
+            applyFilters()
+        }
+    }
+
+    /**
+     * Long press on the bell. Toggles alerts for every new episode until the series finishes
+     * airing or the user turns it off. Survives weekly schedule refreshes because the next episode
+     * is looked up on AniList directly by [AiringAlertSyncWorker] (after every alert, every 12h,
+     * on app start and after reboot), not taken from the currently loaded week.
+     */
+    fun toggleNotifySeries(entry: AiringScheduleEntry) {
+        val mediaId = entry.mediaId
+        val title = entry.displayTitle(schedulePrefs.titleLanguage().get())
+        if (ScheduleNotifications.isSeries(mediaId)) {
+            ScheduleNotifications.endSeries(application, mediaId)
+            ScheduleNotifications.setOnce(mediaId, false)
+            application.toast("Stopped alerts for every episode of $title")
+            applyFilters()
+            return
+        }
+
+        ScheduleNotifications.setOnce(mediaId, false)
+        ScheduleNotifications.setSeries(mediaId, true)
+        // Arm what is already known from the loaded schedule right away (keeps any pending alert
+        // from a previous single tap), then let the sync find episodes beyond this week.
+        val delay = ScheduleNotifications.currentDelayMinutes()
+        allEntries
+            .filter { it.mediaId == mediaId && ScheduleNotifications.isUpcoming(it, delay) }
+            .forEach { ScheduleNotifications.ensureScheduled(application, it) }
+        AiringAlertSyncWorker.ensurePeriodic(application)
+        AiringAlertSyncWorker.enqueueNow(application)
+        application.toast("You'll be notified for every new episode of $title until it finishes airing")
         applyFilters()
     }
 
-    /** Toggles recurring alerts for every future episode of this anime until it finishes airing. */
-    fun toggleNotifySeries(entry: AiringScheduleEntry) {
-        val key = entry.mediaId.toString()
-        val seriesCurrent = schedulePrefs.notifySeriesMediaIds().get()
-        val onceCurrent = schedulePrefs.notifyOnceMediaIds().get()
-        if (key in seriesCurrent) {
-            schedulePrefs.notifySeriesMediaIds().set(seriesCurrent - key)
-            ScheduleNotifications.cancelAllForMedia(application, entry.mediaId, allEntries)
-        } else {
-            schedulePrefs.notifySeriesMediaIds().set(seriesCurrent + key)
-            schedulePrefs.notifyOnceMediaIds().set(onceCurrent - key)
-            rescheduleSeriesAlarms()
-        }
-        applyFilters()
+    /**
+     * The episode a single-tap alert should target: the tapped one if its countdown is still
+     * running, otherwise the next upcoming episode from the loaded schedule, otherwise AniList's
+     * next airing episode for the show.
+     */
+    private suspend fun resolveNextAlertTarget(entry: AiringScheduleEntry): AiringScheduleEntry? {
+        val delay = ScheduleNotifications.currentDelayMinutes()
+        if (ScheduleNotifications.isUpcoming(entry, delay)) return entry
+        allEntries
+            .filter { it.mediaId == entry.mediaId && ScheduleNotifications.isUpcoming(it, delay) }
+            .minByOrNull { it.airingAt }
+            ?.let { return it }
+        if (entry.mediaId <= 0) return null
+        return withIOContext {
+            runCatching {
+                AniListNextEpisodeLookup().fetch(listOf(entry.mediaId))[entry.mediaId]?.nextEpisode
+            }.getOrNull()
+        }?.takeIf { ScheduleNotifications.isUpcoming(it, delay) }
     }
 
     private fun rescheduleSeriesAlarms() {
-        val seriesIds = schedulePrefs.notifySeriesMediaIds().get()
+        val seriesIds = ScheduleNotifications.seriesMediaIds()
         if (seriesIds.isEmpty()) return
+        val delay = ScheduleNotifications.currentDelayMinutes()
         allEntries
-            .filter { it.mediaId.toString() in seriesIds && !it.hasAired() }
+            .filter { it.mediaId in seriesIds && ScheduleNotifications.isUpcoming(it, delay) }
             .forEach { ScheduleNotifications.ensureScheduled(application, it) }
     }
 
