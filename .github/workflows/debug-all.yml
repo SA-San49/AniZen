@@ -1,14 +1,12 @@
-name: Debug APK Build (v8a on new-features)
+name: Universal Debug APK Build
 
 on:
   push:
     branches:
-      - new-features
       - master
       - preview
   pull_request:
     branches:
-      - new-features
       - master
       - preview
   workflow_dispatch:
@@ -22,7 +20,8 @@ env:
 
 jobs:
   build-debug-apks:
-    name: Build Debug-Signed APKs (arm64-v8a on new-features; universal elsewhere)
+    if: github.ref_name != 'new-features'
+    name: Build Universal Debug APKs
     runs-on: ubuntu-latest
     permissions:
       contents: read
