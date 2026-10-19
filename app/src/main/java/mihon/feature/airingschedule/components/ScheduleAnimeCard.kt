@@ -2,6 +2,7 @@ package mihon.feature.airingschedule.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ fun ScheduleAnimeCard(
     notifyState: BellNotifyState,
     onSearchClick: (String) -> Unit,
     onAddToLibraryClick: (String) -> Unit,
+    onLongClick: ((String) -> Unit)? = null,
     onToggleNotifyOnce: () -> Unit,
     onToggleNotifySeries: () -> Unit,
     currentTimeEpochSecond: Long = Instant.now().epochSecond,
@@ -110,7 +112,11 @@ fun ScheduleAnimeCard(
     ) {
         Row(
             modifier = Modifier
-                .clickable { onSearchClick(displayTitle) }
+                .combinedClickable(
+                    onClick = { onSearchClick(displayTitle) },
+                    // Long-press re-picks which source anime this schedule entry opens.
+                    onLongClick = onLongClick?.let { { it(displayTitle) } },
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

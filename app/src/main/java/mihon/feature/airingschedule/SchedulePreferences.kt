@@ -139,6 +139,16 @@ class SchedulePreferences(
         "{}",
     )
 
+    /**
+     * JSON list of the user's manual schedule picks
+     * ([mihon.feature.airingschedule.match.ScheduleManualMatch]). A pick made from a
+     * schedule-launched Global Search overrides every automatic library title match.
+     */
+    fun manualMatches() = preferenceStore.getString(
+        "schedule_manual_matches_v1",
+        "[]",
+    )
+
     companion object {
         /** Parses [customUploadDelayMinutes]'s raw string, clamped to a sane range. Falls back to 0 (no shift) if invalid. */
         fun parseCustomDelayMinutes(raw: String): Long =

@@ -64,13 +64,27 @@ class ScheduleAlarmReceiver : BroadcastReceiver() {
                 val shouldSkipNotification = runCatching {
                     val getLibraryAnime = Injekt.get<tachiyomi.domain.anime.interactor.GetLibraryAnime>()
                     val getEpisodesByAnimeId = Injekt.get<tachiyomi.domain.episode.interactor.GetEpisodesByAnimeId>()
-                    val libraryAnime = getLibraryAnime.await()
-                    val matchedAnime = libraryAnime.firstOrNull { lib ->
-                        mihon.feature.airingschedule.util.ScheduleTitleMatcher.matchesAny(lib.anime.title, titleCandidates)
+                    // The user's manual pick from Global Search wins over any title match.
+                    val manualMatch = mihon.feature.airingschedule.match.ScheduleManualMatchStore()
+                        .index()
+                        .find(
+                            mihon.feature.airingschedule.match.ScheduleMatchKeys.mediaKey(mediaId),
+                            mihon.feature.airingschedule.match.ScheduleMatchKeys.titleKeys(titleCandidates),
+                        )
+                    val manualAnimeId = manualMatch?.let { match ->
+                        Injekt.get<tachiyomi.domain.anime.interactor.GetAnime>()
+                            .await(match.url, match.sourceId)
+                            ?.id
                     }
-                    if (matchedAnime != null) {
-                        matchedAnimeId = matchedAnime.anime.id
-                        val episodes = getEpisodesByAnimeId.await(matchedAnime.anime.id)
+                    val resolvedAnimeId = manualAnimeId ?: run {
+                        val libraryAnime = getLibraryAnime.await()
+                        mihon.feature.airingschedule.util.ScheduleDeepTitleMatcher.Index(
+                            libraryAnime.map { lib -> lib.anime.id to listOf(lib.anime.title, lib.anime.ogTitle) },
+                        ).find(titleCandidates)?.items?.firstOrNull()
+                    }
+                    if (resolvedAnimeId != null) {
+                        matchedAnimeId = resolvedAnimeId
+                        val episodes = getEpisodesByAnimeId.await(resolvedAnimeId)
                         episodes.any { ep ->
                             ep.episodeNumber == episode.toDouble() &&
                                 (ep.seen || ep.dateFetch > 0L)

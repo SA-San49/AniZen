@@ -91,8 +91,21 @@ object ScheduleTitleMatcher {
      * Produces normalized variants of a title for robust matching.
      * All returned keys are lowercase, stripped of noise tags, and normalized for whitespace/punctuation.
      */
+    private const val KEY_CACHE_LIMIT = 8192
+    private val keyCache = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
+
     fun normalizedKeys(title: String?): Set<String> {
         if (title.isNullOrBlank()) return emptySet()
+        // Memoised: the same schedule/library titles are normalised on every filter pass,
+        // and each call runs ~20 regex replacements.
+        keyCache[title]?.let { return it }
+        val keys = computeNormalizedKeys(title)
+        if (keyCache.size >= KEY_CACHE_LIMIT) keyCache.clear()
+        keyCache[title] = keys
+        return keys
+    }
+
+    private fun computeNormalizedKeys(title: String): Set<String> {
 
         val keys = mutableSetOf<String>()
 

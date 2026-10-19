@@ -14,6 +14,13 @@ import mihon.feature.airingschedule.notification.AiringAlertSyncWorker
 import mihon.feature.airingschedule.notification.AniListNextEpisodeLookup
 import mihon.feature.airingschedule.notification.ScheduleNotifications
 import tachiyomi.core.common.util.lang.withIOContext
+import mihon.feature.airingschedule.match.ScheduleBindingRequest
+import mihon.feature.airingschedule.match.ScheduleLibraryMatch
+import mihon.feature.airingschedule.match.ScheduleLibraryRef
+import mihon.feature.airingschedule.match.ScheduleLibraryResolver
+import mihon.feature.airingschedule.match.ScheduleManualMatchStore
+import mihon.feature.airingschedule.match.ScheduleMatchKeys
+import tachiyomi.domain.anime.interactor.GetAnime
 import tachiyomi.domain.anime.interactor.GetLibraryAnime
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -32,6 +39,8 @@ class AiringScheduleScreenModel(
     private val uploadDelayTracker: UploadDelayTracker = Injekt.get(),
     private val application: Application = Injekt.get(),
     private val getLibraryAnime: GetLibraryAnime = Injekt.get(),
+    private val getAnime: GetAnime = Injekt.get(),
+    private val manualMatchStore: ScheduleManualMatchStore = ScheduleManualMatchStore(schedulePrefs),
 ) : StateScreenModel<AiringScheduleScreenModel.State>(State()) {
 
     private var allEntries: List<AiringScheduleEntry> = emptyList()
@@ -39,50 +48,54 @@ class AiringScheduleScreenModel(
     private var lastTitleLanguage = schedulePrefs.titleLanguage().get()
     private var lastPrimarySource = schedulePrefs.primarySource().get()
 
+    @Volatile
+    private var resolver: ScheduleLibraryResolver = ScheduleLibraryResolver.EMPTY
+
     init {
         loadSchedule()
         observePreferences()
         observeLibrary()
     }
 
+    /**
+     * Keeps [resolver] in sync with the library, the user's manual picks and pinned sources.
+     * The index is built off the main thread once per change; every schedule entry is then
+     * resolved with cheap lookups (and cached), instead of re-normalizing titles per card.
+     */
     private fun observeLibrary() {
         screenModelScope.launch {
-            getLibraryAnime.subscribe().collectLatest { libraryAnime ->
-                val (titles, sourcesByTitle, idByTitle) = withIOContext {
-                    val titles = mutableSetOf<String>()
-                    val sourcesByTitle = mutableMapOf<String, Set<String>>()
-                    val idByTitle = mutableMapOf<String, Long>()
-
-                    for (lib in libraryAnime) {
-                        // Match both the user's custom/display title and the original source
-                        // title. A custom title alone can hide a library item whose schedule
-                        // entry uses the source's English or Romaji title.
-                        val libraryTitles = listOf(lib.anime.title, lib.anime.ogTitle).distinct()
-                        val keys = libraryTitles
-                            .flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-                            .toSet()
-                        titles.addAll(keys)
-                        val sourceStr = lib.anime.source.toString()
-                        for (k in keys) {
-                            val existingSources = sourcesByTitle[k].orEmpty()
-                            sourcesByTitle[k] = existingSources + sourceStr
-                            idByTitle[k] = lib.anime.id
+            combine(
+                getLibraryAnime.subscribe(),
+                manualMatchStore.changes(),
+                sourcePreferences.pinnedSources().changes(),
+            ) { libraryAnime, manualIndex, pinned -> Triple(libraryAnime, manualIndex, pinned) }
+                .collectLatest { (libraryAnime, manualIndex, pinned) ->
+                    val newResolver = withIOContext {
+                        val refs = libraryAnime.map { lib ->
+                            // Match both the user's custom/display title and the original source
+                            // title. A custom title alone can hide a library item whose schedule
+                            // entry uses the source's English or Romaji title.
+                            ScheduleLibraryRef(
+                                animeId = lib.anime.id,
+                                sourceId = lib.anime.source,
+                                url = lib.anime.url,
+                                titles = listOf(lib.anime.title, lib.anime.ogTitle).distinct(),
+                            )
+                        }
+                        ScheduleLibraryResolver(
+                            library = refs,
+                            manualMatches = manualIndex,
+                            pinnedSourceIds = pinned.mapNotNull { it.toLongOrNull() },
+                        ).also { built ->
+                            // Warm the cache for the loaded week while still off the main thread.
+                            built.resolveAll(allEntries)
                         }
                     }
-                    Triple(titles, sourcesByTitle, idByTitle)
+                    resolver = newResolver
+                    if (allEntries.isNotEmpty()) {
+                        applyFilters()
+                    }
                 }
-
-                mutableState.update {
-                    it.copy(
-                        libraryAnimeTitles = titles,
-                        librarySourcesByTitle = sourcesByTitle,
-                        libraryAnimeIdByTitle = idByTitle,
-                    )
-                }
-                if (allEntries.isNotEmpty()) {
-                    applyFilters()
-                }
-            }
         }
     }
 
@@ -249,12 +262,11 @@ class AiringScheduleScreenModel(
     private fun matchedSourcesFor(
         entry: AiringScheduleEntry,
         configuredSources: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
+        resolver: ScheduleLibraryResolver,
     ): Set<String> {
-        val titleCandidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-        val candidateKeys = titleCandidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-        val candidateSources = candidateKeys.flatMap { librarySourcesByTitle[it].orEmpty() }.toSet()
-        return candidateSources.intersect(configuredSources)
+        val match = resolver.resolve(entry) ?: return emptySet()
+        // A manual pick counts only for its own source; it overrides every title match.
+        return match.sourceIds.mapTo(LinkedHashSet()) { it.toString() }.intersect(configuredSources)
     }
 
     /**
@@ -306,13 +318,8 @@ class AiringScheduleScreenModel(
 
     private fun isEntryInLibrary(
         entry: AiringScheduleEntry,
-        libraryAnimeTitles: Set<String>,
-        libraryAnimeIdByTitle: Map<String, Long>,
-    ): Boolean {
-        val titleCandidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-        val candidateKeys = titleCandidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-        return candidateKeys.any { it in libraryAnimeTitles || libraryAnimeIdByTitle.containsKey(it) }
-    }
+        resolver: ScheduleLibraryResolver,
+    ): Boolean = resolver.resolve(entry)?.inLibrary == true
 
     private fun filterEntries(
         entries: List<AiringScheduleEntry>,
@@ -321,9 +328,7 @@ class AiringScheduleScreenModel(
         hideAired: Boolean,
         selectedFormats: Set<String>,
         configuredSources: Set<String>,
-        libraryAnimeTitles: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
-        libraryAnimeIdByTitle: Map<String, Long>,
+        resolver: ScheduleLibraryResolver,
     ): List<AiringScheduleEntry> = entries.filter { entry ->
         // Re-apply adult-content filter in case the preference changed since last fetch.
         if (!showAdult && entry.isAdult) return@filter false
@@ -333,13 +338,13 @@ class AiringScheduleScreenModel(
         // When showOnlyFavorites is true:
         // Filter out everything except anime in the user's library.
         if (showOnlyFavorites) {
-            val inLibrary = isEntryInLibrary(entry, libraryAnimeTitles, libraryAnimeIdByTitle)
+            val inLibrary = isEntryInLibrary(entry, resolver)
             if (!inLibrary) return@filter false
 
             // If specific favorite/pinned sources are selected in settings, filter out
             // everything except those that are from those sources added to the library.
             if (configuredSources.isNotEmpty()) {
-                val matchedSources = matchedSourcesFor(entry, configuredSources, librarySourcesByTitle)
+                val matchedSources = matchedSourcesFor(entry, configuredSources, resolver)
                 if (matchedSources.isEmpty()) return@filter false
             }
         }
@@ -349,7 +354,7 @@ class AiringScheduleScreenModel(
     private fun groupByDelayAdjustedDay(
         entries: List<AiringScheduleEntry>,
         configuredSources: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
+        resolver: ScheduleLibraryResolver,
         manualDelayMinutes: Long?,
         delays: Map<String, Long>,
         pinnedSources: Set<String>,
@@ -357,7 +362,7 @@ class AiringScheduleScreenModel(
         zone: ZoneId,
     ): Map<DayOfWeek, List<AiringScheduleEntry>> = entries.groupBy { entry ->
         val matchedSources = if (configuredSources.isNotEmpty()) {
-            matchedSourcesFor(entry, configuredSources, librarySourcesByTitle)
+            matchedSourcesFor(entry, configuredSources, resolver)
         } else {
             emptySet()
         }
@@ -377,9 +382,7 @@ class AiringScheduleScreenModel(
         val showAdult = schedulePrefs.showAdultContent().get()
         val titleLang = schedulePrefs.titleLanguage().get()
         val pinnedSources = sourcePreferences.pinnedSources().get()
-        val librarySourcesByTitle = mutableState.value.librarySourcesByTitle
-        val libraryAnimeTitles = mutableState.value.libraryAnimeTitles
-        val libraryAnimeIdByTitle = mutableState.value.libraryAnimeIdByTitle
+        val resolver = this.resolver
         val hideAired = mutableState.value.hideAired
         val selectedFormats = mutableState.value.selectedFormats
         val manualDelayMinutes = computeManualDelayMinutes()
@@ -395,14 +398,12 @@ class AiringScheduleScreenModel(
             hideAired = hideAired,
             selectedFormats = selectedFormats,
             configuredSources = configuredSources,
-            libraryAnimeTitles = libraryAnimeTitles,
-            librarySourcesByTitle = librarySourcesByTitle,
-            libraryAnimeIdByTitle = libraryAnimeIdByTitle,
+            resolver = resolver,
         )
         val grouped = groupByDelayAdjustedDay(
             entries = filtered,
             configuredSources = configuredSources,
-            librarySourcesByTitle = librarySourcesByTitle,
+            resolver = resolver,
             manualDelayMinutes = manualDelayMinutes,
             delays = delays,
             pinnedSources = pinnedSources,
@@ -415,6 +416,7 @@ class AiringScheduleScreenModel(
                 isLoading = false,
                 scheduleByDay = grouped,
                 allFilteredEntries = filtered,
+                libraryMatches = resolver.resolveAll(filtered),
                 viewMode = schedulePrefs.viewMode().get(),
                 weekStartDate = weekStart,
                 weekEndDate = weekEnd,
@@ -608,6 +610,56 @@ class AiringScheduleScreenModel(
         mutableState.update { it.copy(viewMode = mode) }
     }
 
+    /**
+     * What tapping a schedule entry does:
+     *  1. A manual pick (from Global Search) always wins and opens that anime, even after it
+     *     was removed from the library.
+     *  2. Otherwise a library title match opens the library anime.
+     *  3. Otherwise Global Search starts, and the anime the user picks there becomes the
+     *     manual pick for this entry.
+     */
+    suspend fun resolveTap(entry: AiringScheduleEntry, displayTitle: String): ScheduleTapAction {
+        val match = resolver.resolve(entry)
+        if (match != null) {
+            val manual = match.manual
+            if (!match.isManual || match.inLibrary || manual == null) {
+                return ScheduleTapAction.OpenAnime(match.animeId)
+            }
+            // Manual pick that isn't in the library right now: find its row by source + url
+            // (ids can change if the row was deleted and re-created).
+            val local = withIOContext { runCatching { getAnime.await(manual.url, manual.sourceId) }.getOrNull() }
+            if (local != null) {
+                if (local.id != manual.animeId) {
+                    withIOContext { manualMatchStore.updateAnimeId(manual, local.id) }
+                }
+                return ScheduleTapAction.OpenAnime(local.id)
+            }
+            return ScheduleTapAction.GlobalSearch(
+                query = displayTitle,
+                binding = ScheduleManualMatchStore.encodeRequest(bindingRequest(entry, displayTitle)),
+            )
+        }
+        return ScheduleTapAction.GlobalSearch(
+            query = displayTitle,
+            binding = ScheduleManualMatchStore.encodeRequest(bindingRequest(entry, displayTitle)),
+        )
+    }
+
+    /** Global Search that re-picks the anime for [entry] (long-press), ignoring current matches. */
+    fun repickAction(entry: AiringScheduleEntry, displayTitle: String): ScheduleTapAction.GlobalSearch =
+        ScheduleTapAction.GlobalSearch(
+            query = displayTitle,
+            binding = ScheduleManualMatchStore.encodeRequest(bindingRequest(entry, displayTitle)),
+        )
+
+    private fun bindingRequest(entry: AiringScheduleEntry, displayTitle: String): ScheduleBindingRequest =
+        ScheduleMatchKeys.bindingRequest(entry, displayTitle)
+
+    sealed interface ScheduleTapAction {
+        data class OpenAnime(val animeId: Long) : ScheduleTapAction
+        data class GlobalSearch(val query: String, val binding: String) : ScheduleTapAction
+    }
+
     data class State(
         val isLoading: Boolean = true,
         val scheduleByDay: Map<DayOfWeek, List<AiringScheduleEntry>> = emptyMap(),
@@ -624,9 +676,8 @@ class AiringScheduleScreenModel(
         val pinnedSourceIds: Set<String> = emptySet(),
         val notifyOnceMediaIds: Set<String> = emptySet(),
         val notifySeriesMediaIds: Set<String> = emptySet(),
-        val libraryAnimeTitles: Set<String> = emptySet(),
-        val librarySourcesByTitle: Map<String, Set<String>> = emptyMap(),
-        val libraryAnimeIdByTitle: Map<String, Long> = emptyMap(),
+        /** Library / manual-pick match per schedule media id (see [ScheduleLibraryResolver]). */
+        val libraryMatches: Map<Int, ScheduleLibraryMatch> = emptyMap(),
         val onlyFavorites: Boolean = false,
         val hideAired: Boolean = false,
         val showAdult: Boolean = false,

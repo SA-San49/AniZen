@@ -18,11 +18,22 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.browse.BulkFavoriteScreenModel
 import eu.kanade.tachiyomi.ui.browse.source.browse.BrowseSourceScreen
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import eu.kanade.tachiyomi.util.system.toast
+import mihon.feature.airingschedule.match.ScheduleManualMatchStore
+import tachiyomi.domain.anime.model.Anime
 import tachiyomi.presentation.core.screens.LoadingScreen
 
 class GlobalSearchScreen(
     val searchQuery: String = "",
     private val extensionFilter: String? = null,
+    /**
+     * Set when the Airing Schedule opened this search for an entry. The anime the user picks
+     * (here or in a source opened from here) becomes that entry's manual match, which
+     * overrides every automatic library title match.
+     */
+    private val scheduleBinding: String? = null,
 ) : Screen() {
 
     @Composable
@@ -33,6 +44,7 @@ class GlobalSearchScreen(
         }
 
         val navigator = LocalNavigator.currentOrThrow
+        val context = LocalContext.current
 
         val screenModel = rememberScreenModel {
             GlobalSearchScreenModel(
@@ -79,12 +91,17 @@ class GlobalSearchScreen(
                 onChangeSearchFilter = screenModel::setSourceFilter,
                 onToggleResults = screenModel::toggleFilterResults,
                 onClickSource = {
-                    navigator.push(BrowseSourceScreen(it.id, state.searchQuery))
+                    navigator.push(
+                        BrowseSourceScreen(it.id, state.searchQuery, scheduleBinding = scheduleBinding),
+                    )
                 },
                 onClickItem = { anime ->
                     if (bulkFavoriteState.selectionMode) {
                         bulkFavoriteScreenModel.toggleSelection(anime)
                     } else {
+                        if (scheduleBinding != null) {
+                            bindScheduleManualMatch(context, scheduleBinding, anime)
+                        }
                         navigator.push(AnimeScreen(anime.id, true))
                     }
                 },
@@ -104,5 +121,16 @@ class GlobalSearchScreen(
                 dialog = bulkFavoriteState.dialog,
             )
         }
+    }
+}
+
+/**
+ * Saves [anime] as the user's manual pick for the schedule entry encoded in [scheduleBinding].
+ * Shared by Global Search and sources opened from a schedule-launched Global Search.
+ */
+internal fun bindScheduleManualMatch(context: Context, scheduleBinding: String, anime: Anime) {
+    val saved = runCatching { ScheduleManualMatchStore().bind(scheduleBinding, anime) }.getOrDefault(false)
+    if (saved) {
+        context.toast("Schedule will now open \"${anime.title}\"")
     }
 }
