@@ -1,4 +1,4 @@
-name: Universal Debug APK Build
+name: Debug APK Build (v8a on new-features)
 
 on:
   push:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   build-debug-apks:
-    name: Build Debug-Signed APKs (Universal)
+    name: Build Debug-Signed APKs (arm64-v8a on new-features; universal elsewhere)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,8 +65,13 @@ jobs:
           echo "VERSION_CODE=$CURRENT_VC" >> "$GITHUB_ENV"
           echo "Building AniZen v$CURRENT_VN (code=$CURRENT_VC)"
 
-      - name: Build Universal Debug-Signed APKs
-        run: ./gradlew assembleDebug assembleR8Debug -Pinclude-telemetry=false -Penable-updater=false --no-daemon
+      - name: Build branch-specific debug APKs
+        run: |
+          if [[ "$GITHUB_REF_NAME" == "new-features" ]]; then
+            ./gradlew assembleR8Debug -PabiList=arm64-v8a -Pandroid.enableR8.fullMode=true -Pinclude-telemetry=false -Penable-updater=false --no-daemon
+          else
+            ./gradlew assembleDebug assembleR8Debug -Pinclude-telemetry=false -Penable-updater=false --no-daemon
+          fi
         env:
           SIGNING_STORE_PASSWORD: android
           SIGNING_KEY_ALIAS: androiddebugkey
@@ -76,17 +81,25 @@ jobs:
         run: |
           VERSION="${{ env.VERSION }}"
           mkdir -p dist
-          find app/build/outputs/apk -type f -name "*.apk" | while read -r apk; do
-            base=$(basename "$apk" .apk)
-            cp "$apk" "dist/AniZen-v${VERSION}-${base}.apk"
-            echo "Packed: dist/AniZen-v${VERSION}-${base}.apk ($(stat -c%s "$apk") bytes)"
-          done
+          if [[ "$GITHUB_REF_NAME" == "new-features" ]]; then
+            SOURCE_APK=$(find app/build/outputs/apk/r8Debug -type f -name "*arm64-v8a*.apk" | head -1)
+            test -n "$SOURCE_APK" || (echo "No arm64-v8a R8 debug APK found!" && exit 1)
+            TARGET="dist/AniZen-v${VERSION}-v8a-r8-debug.apk"
+            cp "$SOURCE_APK" "$TARGET"
+            echo "Packed: $TARGET ($(stat -c%s "$SOURCE_APK") bytes)"
+          else
+            find app/build/outputs/apk -type f -name "*.apk" | while read -r apk; do
+              base=$(basename "$apk" .apk)
+              cp "$apk" "dist/AniZen-v${VERSION}-${base}.apk"
+              echo "Packed: dist/AniZen-v${VERSION}-${base}.apk ($(stat -c%s "$apk") bytes)"
+            done
+          fi
           test -n "$(ls dist/*.apk 2>/dev/null)" || (echo "No APKs found!" && exit 1)
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AniZen-v${{ env.VERSION }}-debug-universal
+          name: AniZen-v${{ env.VERSION }}-${{ github.ref_name == 'new-features' && 'v8a-r8-debug' || 'debug-universal' }}
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 7
