@@ -1,4 +1,4 @@
-name: Bump Version on Code Change
+name: Bump Version and Build v8a
 
 on:
   push:
@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
 
     steps:
       - name: Clone repo
@@ -29,46 +31,90 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Bump version
+        id: bump
+        run: |
+          GRADLE_FILE="app/build.gradle.kts"
+          CURRENT_VC=$(grep "versionCode =" "$GRADLE_FILE" | grep -oE '[0-9]+')
+          NEW_VC=$((CURRENT_VC + 1))
+          CURRENT_VN=$(grep "versionName =" "$GRADLE_FILE" | cut -d '"' -f 2)
+          CLEAN_VN=$(echo "$CURRENT_VN" | sed 's/-MOD//')
+          MAJOR=$(echo "$CLEAN_VN" | cut -d'.' -f1)
+          MINOR=$(echo "$CLEAN_VN" | cut -d'.' -f2)
+          PATCH=$(echo "$CLEAN_VN" | cut -d'.' -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VN="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          sed -i "s/versionCode = $CURRENT_VC/versionCode = $NEW_VC/" "$GRADLE_FILE"
+          sed -i "s/versionName = \"$CURRENT_VN\"/versionName = \"$NEW_VN\"/" "$GRADLE_FILE"
+          echo "Bumped versionCode from $CURRENT_VC to $NEW_VC"
+          echo "Bumped versionName from $CURRENT_VN to $NEW_VN"
+          echo "new_version=$NEW_VN" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        id: commit
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: bump version to $NEW_VN"
+          fi
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-v8a:
+    name: Build arm64-v8a R8 debug APK
+    if: github.ref_name == 'new-features'
+    needs: bump-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone bumped commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-version.outputs.commit_sha }}
+          fetch-depth: 1
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: 17
           distribution: temurin
+          cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
-      - name: Bump version
-        id: bump
+      - name: Get version
         run: |
-          GRADLE_FILE="app/build.gradle.kts"
+          CURRENT_VN=$(grep "versionName =" app/build.gradle.kts | cut -d '"' -f 2)
+          CURRENT_VC=$(grep "versionCode =" app/build.gradle.kts | grep -oE '[0-9]+')
+          test -n "$CURRENT_VN"
+          echo "VERSION=$CURRENT_VN" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$CURRENT_VC" >> "$GITHUB_ENV"
+          echo "Building AniZen v$CURRENT_VN (code=$CURRENT_VC) for arm64-v8a"
 
-          CURRENT_VC=$(grep "versionCode =" "$GRADLE_FILE" | sed 's/[^0-9]*//g')
-          NEW_VC=$((CURRENT_VC + 1))
+      - name: Build arm64-v8a APK
+        run: ./gradlew assembleR8Debug -PabiList=arm64-v8a -Pandroid.enableR8.fullMode=true -Pinclude-telemetry=false -Penable-updater=false --no-daemon
 
-          CURRENT_VN=$(grep "versionName =" "$GRADLE_FILE" | sed 's/.*"\(.*\)".*/\1/')
-          CLEAN_VN=$(echo "$CURRENT_VN" | sed 's/-MOD//')
-
-          MAJOR=$(echo "$CLEAN_VN" | cut -d'.' -f1)
-          MINOR=$(echo "$CLEAN_VN" | cut -d'.' -f2)
-          PATCH=$(echo "$CLEAN_VN" | cut -d'.' -f3)
-
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VN="${MAJOR}.${MINOR}.${NEW_PATCH}"
-
-          sed -i "s/versionCode = $CURRENT_VC/versionCode = $NEW_VC/" "$GRADLE_FILE"
-          sed -i "s/versionName = \"$CURRENT_VN\"/versionName = \"$NEW_VN\"/" "$GRADLE_FILE"
-
-          echo "Bumped versionCode from $CURRENT_VC to $NEW_VC"
-          echo "Bumped versionName from $CURRENT_VN to $NEW_VN"
-
-          echo "NEW_VN=$NEW_VN" >> "$GITHUB_ENV"
-          echo "NEW_VC=$NEW_VC" >> "$GITHUB_ENV"
-
-      - name: Commit and Push Version Bump
+      - name: Rename and validate APK
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts
-          git commit -m "chore: bump version to ${{ env.NEW_VN }}" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          mkdir -p dist
+          APK="dist/AniZen-v$VERSION-v8a-r8-debug.apk"
+          SOURCE_APK=$(find app/build/outputs/apk/r8Debug -type f -name "*arm64-v8a*.apk" | head -1)
+          test -n "$SOURCE_APK" || (echo "No arm64-v8a R8 debug APK found!" && exit 1)
+          cp "$SOURCE_APK" "$APK"
+          test -s "$APK"
+          echo "Packed: $APK ($(stat -c%s "$APK") bytes)"
+
+      - name: Upload v8a APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AniZen-v${{ env.VERSION }}-v8a-r8-debug
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 7
