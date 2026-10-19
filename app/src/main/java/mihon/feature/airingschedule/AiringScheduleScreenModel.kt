@@ -14,7 +14,10 @@ import mihon.feature.airingschedule.notification.AiringAlertSyncWorker
 import mihon.feature.airingschedule.notification.AniListNextEpisodeLookup
 import mihon.feature.airingschedule.notification.ScheduleNotifications
 import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.domain.anime.interactor.GetAnimeByUrlAndSourceId
 import tachiyomi.domain.anime.interactor.GetLibraryAnime
+import tachiyomi.domain.anime.interactor.NetworkToLocalAnime
+import tachiyomi.domain.anime.model.Anime
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.time.DayOfWeek
@@ -32,6 +35,8 @@ class AiringScheduleScreenModel(
     private val uploadDelayTracker: UploadDelayTracker = Injekt.get(),
     private val application: Application = Injekt.get(),
     private val getLibraryAnime: GetLibraryAnime = Injekt.get(),
+    private val getAnimeByUrlAndSourceId: GetAnimeByUrlAndSourceId = Injekt.get(),
+    private val networkToLocalAnime: NetworkToLocalAnime = Injekt.get(),
 ) : StateScreenModel<AiringScheduleScreenModel.State>(State()) {
 
     private var allEntries: List<AiringScheduleEntry> = emptyList()
@@ -47,42 +52,108 @@ class AiringScheduleScreenModel(
 
     private fun observeLibrary() {
         screenModelScope.launch {
-            getLibraryAnime.subscribe().collectLatest { libraryAnime ->
-                val (titles, sourcesByTitle, idByTitle) = withIOContext {
-                    val titles = mutableSetOf<String>()
-                    val sourcesByTitle = mutableMapOf<String, Set<String>>()
-                    val idByTitle = mutableMapOf<String, Long>()
+            combine(
+                getLibraryAnime.subscribe(),
+                schedulePrefs.manualAnimePicks().changes(),
+            ) { libraryAnime, rawPicks -> libraryAnime to rawPicks }
+                .collectLatest { (libraryAnime, rawPicks) ->
+                    val index = withIOContext {
+                        val titles = mutableSetOf<String>()
+                        val sourcesByTitle = mutableMapOf<String, Set<String>>()
+                        val idByTitle = mutableMapOf<String, Long>()
+                        val libraryIdByIdentity = HashMap<String, Long>(libraryAnime.size)
 
-                    for (lib in libraryAnime) {
-                        // Match both the user's custom/display title and the original source
-                        // title. A custom title alone can hide a library item whose schedule
-                        // entry uses the source's English or Romaji title.
-                        val libraryTitles = listOf(lib.anime.title, lib.anime.ogTitle).distinct()
-                        val keys = libraryTitles
-                            .flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-                            .toSet()
-                        titles.addAll(keys)
-                        val sourceStr = lib.anime.source.toString()
-                        for (k in keys) {
-                            val existingSources = sourcesByTitle[k].orEmpty()
-                            sourcesByTitle[k] = existingSources + sourceStr
-                            idByTitle[k] = lib.anime.id
+                        for (lib in libraryAnime) {
+                            libraryIdByIdentity[ScheduleManualPicks.identityOf(lib.anime.source, lib.anime.url)] =
+                                lib.anime.id
+                            // Match both the user's custom/display title and the original source
+                            // title. A custom title alone can hide a library item whose schedule
+                            // entry uses the source's English or Romaji title.
+                            val libraryTitles = listOf(lib.anime.title, lib.anime.ogTitle).distinct()
+                            val keys = libraryTitles
+                                .flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
+                                .toSet()
+                            titles.addAll(keys)
+                            val sourceStr = lib.anime.source.toString()
+                            for (k in keys) {
+                                val existingSources = sourcesByTitle[k].orEmpty()
+                                sourcesByTitle[k] = existingSources + sourceStr
+                                idByTitle[k] = lib.anime.id
+                            }
                         }
-                    }
-                    Triple(titles, sourcesByTitle, idByTitle)
-                }
 
-                mutableState.update {
-                    it.copy(
-                        libraryAnimeTitles = titles,
-                        librarySourcesByTitle = sourcesByTitle,
-                        libraryAnimeIdByTitle = idByTitle,
-                    )
+                        // Manual picks: resolve by source + url so a pick survives removing and
+                        // re-adding the anime (its row may even be recreated with a new id).
+                        val picks = ScheduleManualPicks.decode(rawPicks)
+                        val pickRows = HashMap<String, ScheduleManualPickRow>()
+                        for (pick in picks.values) {
+                            val identity = pick.identity
+                            if (identity in pickRows) continue
+                            val libraryId = libraryIdByIdentity[identity]
+                            pickRows[identity] = if (libraryId != null) {
+                                ScheduleManualPickRow(animeId = libraryId, inLibrary = true)
+                            } else {
+                                val local = runCatching { getAnimeByUrlAndSourceId.await(pick.url, pick.sourceId) }
+                                    .getOrNull() ?: continue
+                                ScheduleManualPickRow(animeId = local.id, inLibrary = local.favorite)
+                            }
+                        }
+
+                        ScheduleLibraryIndex(
+                            titles = titles,
+                            sourcesByTitle = sourcesByTitle,
+                            idByTitle = idByTitle,
+                            manualPicks = picks,
+                            pickRows = pickRows,
+                        )
+                    }
+
+                    mutableState.update { it.copy(libraryIndex = index) }
+                    if (allEntries.isNotEmpty()) {
+                        applyFilters()
+                    }
                 }
-                if (allEntries.isNotEmpty()) {
-                    applyFilters()
+        }
+    }
+
+    /**
+     * Tap on a schedule entry. The user's manual pick always wins; otherwise the automatic
+     * library title match is opened; with neither, a global search is started whose chosen
+     * result becomes the entry's manual pick.
+     */
+    fun onEntryClick(
+        entry: AiringScheduleEntry,
+        title: String,
+        openAnime: (Long) -> Unit,
+        search: (String, SchedulePickRequest) -> Unit,
+    ) {
+        val match = mutableState.value.libraryIndex.resolve(entry)
+        val pick = match.manualPick
+        when {
+            match.animeId != null -> openAnime(match.animeId)
+            pick != null -> screenModelScope.launch {
+                // The picked anime's row is gone (e.g. database cleanup after it left the
+                // library): recreate it from the stored source + url and open it.
+                val animeId = withIOContext {
+                    runCatching {
+                        getAnimeByUrlAndSourceId.await(pick.url, pick.sourceId)?.id
+                            ?: networkToLocalAnime.await(
+                                Anime.create().copy(
+                                    url = pick.url,
+                                    ogTitle = pick.title,
+                                    source = pick.sourceId,
+                                    ogThumbnailUrl = pick.thumbnailUrl,
+                                ),
+                            ).id
+                    }.getOrNull()
+                }
+                if (animeId != null && animeId > 0) {
+                    openAnime(animeId)
+                } else {
+                    search(title, SchedulePickRequest.from(entry))
                 }
             }
+            else -> search(title, SchedulePickRequest.from(entry))
         }
     }
 
@@ -249,13 +320,8 @@ class AiringScheduleScreenModel(
     private fun matchedSourcesFor(
         entry: AiringScheduleEntry,
         configuredSources: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
-    ): Set<String> {
-        val titleCandidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-        val candidateKeys = titleCandidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-        val candidateSources = candidateKeys.flatMap { librarySourcesByTitle[it].orEmpty() }.toSet()
-        return candidateSources.intersect(configuredSources)
-    }
+        libraryIndex: ScheduleLibraryIndex,
+    ): Set<String> = libraryIndex.resolve(entry).sources.intersect(configuredSources)
 
     /**
      * Resolves the learned upload delay according to pinned sources priority order,
@@ -306,13 +372,8 @@ class AiringScheduleScreenModel(
 
     private fun isEntryInLibrary(
         entry: AiringScheduleEntry,
-        libraryAnimeTitles: Set<String>,
-        libraryAnimeIdByTitle: Map<String, Long>,
-    ): Boolean {
-        val titleCandidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-        val candidateKeys = titleCandidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-        return candidateKeys.any { it in libraryAnimeTitles || libraryAnimeIdByTitle.containsKey(it) }
-    }
+        libraryIndex: ScheduleLibraryIndex,
+    ): Boolean = libraryIndex.resolve(entry).inLibrary
 
     private fun filterEntries(
         entries: List<AiringScheduleEntry>,
@@ -321,9 +382,7 @@ class AiringScheduleScreenModel(
         hideAired: Boolean,
         selectedFormats: Set<String>,
         configuredSources: Set<String>,
-        libraryAnimeTitles: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
-        libraryAnimeIdByTitle: Map<String, Long>,
+        libraryIndex: ScheduleLibraryIndex,
     ): List<AiringScheduleEntry> = entries.filter { entry ->
         // Re-apply adult-content filter in case the preference changed since last fetch.
         if (!showAdult && entry.isAdult) return@filter false
@@ -333,13 +392,13 @@ class AiringScheduleScreenModel(
         // When showOnlyFavorites is true:
         // Filter out everything except anime in the user's library.
         if (showOnlyFavorites) {
-            val inLibrary = isEntryInLibrary(entry, libraryAnimeTitles, libraryAnimeIdByTitle)
+            val inLibrary = isEntryInLibrary(entry, libraryIndex)
             if (!inLibrary) return@filter false
 
             // If specific favorite/pinned sources are selected in settings, filter out
             // everything except those that are from those sources added to the library.
             if (configuredSources.isNotEmpty()) {
-                val matchedSources = matchedSourcesFor(entry, configuredSources, librarySourcesByTitle)
+                val matchedSources = matchedSourcesFor(entry, configuredSources, libraryIndex)
                 if (matchedSources.isEmpty()) return@filter false
             }
         }
@@ -349,7 +408,7 @@ class AiringScheduleScreenModel(
     private fun groupByDelayAdjustedDay(
         entries: List<AiringScheduleEntry>,
         configuredSources: Set<String>,
-        librarySourcesByTitle: Map<String, Set<String>>,
+        libraryIndex: ScheduleLibraryIndex,
         manualDelayMinutes: Long?,
         delays: Map<String, Long>,
         pinnedSources: Set<String>,
@@ -357,7 +416,7 @@ class AiringScheduleScreenModel(
         zone: ZoneId,
     ): Map<DayOfWeek, List<AiringScheduleEntry>> = entries.groupBy { entry ->
         val matchedSources = if (configuredSources.isNotEmpty()) {
-            matchedSourcesFor(entry, configuredSources, librarySourcesByTitle)
+            matchedSourcesFor(entry, configuredSources, libraryIndex)
         } else {
             emptySet()
         }
@@ -377,9 +436,7 @@ class AiringScheduleScreenModel(
         val showAdult = schedulePrefs.showAdultContent().get()
         val titleLang = schedulePrefs.titleLanguage().get()
         val pinnedSources = sourcePreferences.pinnedSources().get()
-        val librarySourcesByTitle = mutableState.value.librarySourcesByTitle
-        val libraryAnimeTitles = mutableState.value.libraryAnimeTitles
-        val libraryAnimeIdByTitle = mutableState.value.libraryAnimeIdByTitle
+        val libraryIndex = mutableState.value.libraryIndex
         val hideAired = mutableState.value.hideAired
         val selectedFormats = mutableState.value.selectedFormats
         val manualDelayMinutes = computeManualDelayMinutes()
@@ -395,14 +452,12 @@ class AiringScheduleScreenModel(
             hideAired = hideAired,
             selectedFormats = selectedFormats,
             configuredSources = configuredSources,
-            libraryAnimeTitles = libraryAnimeTitles,
-            librarySourcesByTitle = librarySourcesByTitle,
-            libraryAnimeIdByTitle = libraryAnimeIdByTitle,
+            libraryIndex = libraryIndex,
         )
         val grouped = groupByDelayAdjustedDay(
             entries = filtered,
             configuredSources = configuredSources,
-            librarySourcesByTitle = librarySourcesByTitle,
+            libraryIndex = libraryIndex,
             manualDelayMinutes = manualDelayMinutes,
             delays = delays,
             pinnedSources = pinnedSources,
@@ -624,9 +679,7 @@ class AiringScheduleScreenModel(
         val pinnedSourceIds: Set<String> = emptySet(),
         val notifyOnceMediaIds: Set<String> = emptySet(),
         val notifySeriesMediaIds: Set<String> = emptySet(),
-        val libraryAnimeTitles: Set<String> = emptySet(),
-        val librarySourcesByTitle: Map<String, Set<String>> = emptyMap(),
-        val libraryAnimeIdByTitle: Map<String, Long> = emptyMap(),
+        val libraryIndex: ScheduleLibraryIndex = ScheduleLibraryIndex(),
         val onlyFavorites: Boolean = false,
         val hideAired: Boolean = false,
         val showAdult: Boolean = false,

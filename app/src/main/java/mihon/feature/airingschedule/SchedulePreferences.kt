@@ -139,6 +139,15 @@ class SchedulePreferences(
         "{}",
     )
 
+    /**
+     * JSON map of schedule media id -> [ScheduleManualPick]: the anime the user explicitly
+     * chose from global search for that schedule entry. Overrides automatic library matching.
+     */
+    fun manualAnimePicks() = preferenceStore.getString(
+        "schedule_manual_anime_picks",
+        "{}",
+    )
+
     companion object {
         /** Parses [customUploadDelayMinutes]'s raw string, clamped to a sane range. Falls back to 0 (no shift) if invalid. */
         fun parseCustomDelayMinutes(raw: String): Long =

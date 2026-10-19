@@ -115,6 +115,12 @@ data object AiringScheduleTab : Tab {
         }
         val screenModel = rememberScreenModel { AiringScheduleScreenModel() }
         val state by screenModel.state.collectAsState()
+        val openAnime: (Long) -> Unit = { animeId -> navigator.push(AnimeScreen(animeId)) }
+        // Global search started from the schedule remembers the anime the user picks as this
+        // entry's manual match, which then overrides automatic library matching.
+        val searchForPick: (String, SchedulePickRequest) -> Unit = { title, request ->
+            navigator.push(GlobalSearchScreen(searchQuery = title, schedulePick = request))
+        }
         val scope = rememberCoroutineScope()
         var showFilterSheet by remember { mutableStateOf(false) }
 
@@ -203,16 +209,16 @@ data object AiringScheduleTab : Tab {
                         sourceDelays = state.sourceDelays,
                         manualDelayMinutes = state.manualDelayMinutes,
                         favoriteSourceIds = state.favoriteSourceIds,
-                        libraryAnimeTitles = state.libraryAnimeTitles,
-                        libraryAnimeIdByTitle = state.libraryAnimeIdByTitle,
-                        librarySourcesByTitle = state.librarySourcesByTitle,
+                        libraryIndex = state.libraryIndex,
                         pinnedSources = state.pinnedSourceIds,
                         onceMediaIds = state.notifyOnceMediaIds,
                         seriesMediaIds = state.notifySeriesMediaIds,
                         onToggleAlert = { entry -> screenModel.toggleNotifyOnce(entry) },
                         onLongClickAlert = { entry -> screenModel.toggleNotifySeries(entry) },
-                        onOpenAnime = { animeId -> navigator.push(AnimeScreen(animeId)) },
-                        onSearchAnime = { title -> navigator.push(GlobalSearchScreen(searchQuery = title)) },
+                        onEntryClick = { entry, title ->
+                            screenModel.onEntryClick(entry, title, openAnime, searchForPick)
+                        },
+                        onSearchAnime = { entry, title -> searchForPick(title, SchedulePickRequest.from(entry)) },
                         modifier = Modifier.padding(paddingValues),
                     )
                 }
@@ -236,23 +242,11 @@ data object AiringScheduleTab : Tab {
                             manualDelayMinutes = state.manualDelayMinutes,
                             favoriteSourceIds = state.favoriteSourceIds,
                             pinnedSourceIds = state.pinnedSourceIds,
-                            libraryAnimeTitles = state.libraryAnimeTitles,
-                            libraryAnimeIdByTitle = state.libraryAnimeIdByTitle,
-                            onOpenAnime = { animeId -> navigator.push(AnimeScreen(animeId)) },
-                            onSearchClick = { title ->
-                                navigator.push(
-                                    GlobalSearchScreen(
-                                        searchQuery = title,
-                                    ),
-                                )
+                            libraryIndex = state.libraryIndex,
+                            onEntryClick = { entry, title ->
+                                screenModel.onEntryClick(entry, title, openAnime, searchForPick)
                             },
-                            onAddToLibraryClick = { title ->
-                                navigator.push(
-                                    GlobalSearchScreen(
-                                        searchQuery = title,
-                                    ),
-                                )
-                            },
+                            onSearchClick = { entry, title -> searchForPick(title, SchedulePickRequest.from(entry)) },
                             notifyOnceMediaIds = state.notifyOnceMediaIds,
                             notifySeriesMediaIds = state.notifySeriesMediaIds,
                             onToggleNotifyOnce = { entry -> screenModel.toggleNotifyOnce(entry) },
@@ -355,11 +349,9 @@ private fun ScheduleDayContent(
     manualDelayMinutes: Long?,
     favoriteSourceIds: Set<String>,
     pinnedSourceIds: Set<String>,
-    libraryAnimeTitles: Set<String>,
-    libraryAnimeIdByTitle: Map<String, Long>,
-    onOpenAnime: (Long) -> Unit,
-    onSearchClick: (String) -> Unit,
-    onAddToLibraryClick: (String) -> Unit,
+    libraryIndex: ScheduleLibraryIndex,
+    onEntryClick: (AiringScheduleEntry, String) -> Unit,
+    onSearchClick: (AiringScheduleEntry, String) -> Unit,
     notifyOnceMediaIds: Set<String>,
     notifySeriesMediaIds: Set<String>,
     onToggleNotifyOnce: (AiringScheduleEntry) -> Unit,
@@ -391,16 +383,7 @@ private fun ScheduleDayContent(
                 mediaKey in notifyOnceMediaIds -> BellNotifyState.ONCE
                 else -> BellNotifyState.NONE
             }
-            val matchedAnimeId = remember(entry.scheduleId, libraryAnimeIdByTitle) {
-                val candidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                val candidateKeys = candidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-                candidateKeys.firstNotNullOfOrNull { libraryAnimeIdByTitle[it] }
-            }
-            val isInLibrary = matchedAnimeId != null || remember(entry.scheduleId, libraryAnimeTitles) {
-                val candidates = mihon.feature.airingschedule.util.ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                val candidateKeys = candidates.flatMap { mihon.feature.airingschedule.util.ScheduleTitleMatcher.normalizedKeys(it) }
-                candidateKeys.any { it in libraryAnimeTitles }
-            }
+            val isInLibrary = remember(entry, libraryIndex) { libraryIndex.resolve(entry).inLibrary }
             ScheduleAnimeCard(
                 entry = entry,
                 titleLanguage = titleLanguage,
@@ -411,20 +394,9 @@ private fun ScheduleDayContent(
                 isInLibrary = isInLibrary,
                 notifyState = notifyState,
                 currentTimeEpochSecond = currentEpochSecond,
-                onSearchClick = { title ->
-                    if (matchedAnimeId != null) {
-                        onOpenAnime(matchedAnimeId)
-                    } else {
-                        onSearchClick(title)
-                    }
-                },
-                onAddToLibraryClick = { title ->
-                    if (matchedAnimeId != null) {
-                        onOpenAnime(matchedAnimeId)
-                    } else {
-                        onAddToLibraryClick(title)
-                    }
-                },
+                onClick = { title -> onEntryClick(entry, title) },
+                onSearchClick = { title -> onSearchClick(entry, title) },
+                onAddToLibraryClick = { title -> onEntryClick(entry, title) },
                 onToggleNotifyOnce = { onToggleNotifyOnce(entry) },
                 onToggleNotifySeries = { onToggleNotifySeries(entry) },
             )

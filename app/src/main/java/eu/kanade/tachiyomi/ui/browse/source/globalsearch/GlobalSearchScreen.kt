@@ -18,11 +18,15 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.browse.BulkFavoriteScreenModel
 import eu.kanade.tachiyomi.ui.browse.source.browse.BrowseSourceScreen
+import mihon.feature.airingschedule.SchedulePickRequest
+import mihon.feature.airingschedule.recordSchedulePick
 import tachiyomi.presentation.core.screens.LoadingScreen
 
 class GlobalSearchScreen(
     val searchQuery: String = "",
     private val extensionFilter: String? = null,
+    /** Set when opened from the airing schedule: the anime the user picks becomes that entry's manual match. */
+    private val schedulePick: SchedulePickRequest? = null,
 ) : Screen() {
 
     @Composable
@@ -60,6 +64,7 @@ class GlobalSearchScreen(
                     is SearchItemResult.Success -> {
                         val anime = result.result.singleOrNull()
                         if (anime != null) {
+                            schedulePick?.let { recordSchedulePick(it, anime) }
                             navigator.replace(AnimeScreen(anime.id, true))
                         } else {
                             // Backoff to result screen
@@ -79,12 +84,13 @@ class GlobalSearchScreen(
                 onChangeSearchFilter = screenModel::setSourceFilter,
                 onToggleResults = screenModel::toggleFilterResults,
                 onClickSource = {
-                    navigator.push(BrowseSourceScreen(it.id, state.searchQuery))
+                    navigator.push(BrowseSourceScreen(it.id, state.searchQuery, schedulePick = schedulePick))
                 },
                 onClickItem = { anime ->
                     if (bulkFavoriteState.selectionMode) {
                         bulkFavoriteScreenModel.toggleSelection(anime)
                     } else {
+                        schedulePick?.let { recordSchedulePick(it, anime) }
                         navigator.push(AnimeScreen(anime.id, true))
                     }
                 },

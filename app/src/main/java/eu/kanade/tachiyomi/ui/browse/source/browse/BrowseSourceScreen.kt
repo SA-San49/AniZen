@@ -106,11 +106,15 @@ import tachiyomi.presentation.core.util.collectAsState as collectAsStatePref
 import tachiyomi.source.localanime.LocalAnimeSource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import mihon.feature.airingschedule.SchedulePickRequest
+import mihon.feature.airingschedule.recordSchedulePick
 
 data class BrowseSourceScreen(
     private val sourceId: Long,
     private val listingQuery: String? = null,
     private val savedSearchId: Long? = null,
+    /** Set when opened from a schedule-started global search: the tapped anime becomes the entry's manual match. */
+    private val schedulePick: SchedulePickRequest? = null,
 ) : Screen(), AssistContentScreen {
 
     private var assistUrl: String? = null
@@ -462,6 +466,7 @@ data class BrowseSourceScreen(
                     if (state.selectionMode) {
                         screenModel.toggleSelection(anime, index)
                     } else {
+                        schedulePick?.let { recordSchedulePick(it, anime) }
                         navigator.push((AnimeScreen(anime.id, true)))
                     }
                 },

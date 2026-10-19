@@ -2,6 +2,7 @@ package mihon.feature.airingschedule.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,9 @@ fun ScheduleAnimeCard(
     pinnedSourceIds: Set<String>,
     isInLibrary: Boolean,
     notifyState: BellNotifyState,
+    /** Tap: opens the manually picked / library anime, or starts a global search when there is none. */
+    onClick: (String) -> Unit,
+    /** Explicit global search (search button, long-press): the chosen result becomes the manual pick. */
     onSearchClick: (String) -> Unit,
     onAddToLibraryClick: (String) -> Unit,
     onToggleNotifyOnce: () -> Unit,
@@ -110,7 +114,10 @@ fun ScheduleAnimeCard(
     ) {
         Row(
             modifier = Modifier
-                .clickable { onSearchClick(displayTitle) }
+                .combinedClickable(
+                    onClick = { onClick(displayTitle) },
+                    onLongClick = { onSearchClick(displayTitle) },
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -140,7 +147,9 @@ fun ScheduleAnimeCard(
                 hasAired = hasAired,
                 isInLibrary = isInLibrary,
                 notifyState = notifyState,
-                onSearchClick = { onSearchClick(displayTitle) },
+                // Aired: "watch" opens the picked/library anime. Upcoming: always search so a
+                // wrong automatic match can be corrected by picking the right anime.
+                onSearchClick = { if (hasAired) onClick(displayTitle) else onSearchClick(displayTitle) },
                 onAddToLibraryClick = { onAddToLibraryClick(displayTitle) },
                 onToggleNotifyOnce = onToggleNotifyOnce,
                 onToggleNotifySeries = onToggleNotifySeries,

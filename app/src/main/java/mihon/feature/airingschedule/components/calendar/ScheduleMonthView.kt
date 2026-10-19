@@ -25,10 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import mihon.core.designsystem.utils.isExpandedWidthWindow
 import mihon.feature.airingschedule.AiringScheduleEntry
+import mihon.feature.airingschedule.ScheduleLibraryIndex
 import mihon.feature.airingschedule.SchedulePreferences
 import mihon.feature.airingschedule.components.BellNotifyState
 import mihon.feature.airingschedule.components.ScheduleAnimeCard
-import mihon.feature.airingschedule.util.ScheduleTitleMatcher
 import tachiyomi.presentation.core.components.material.padding
 import java.time.Instant
 import java.time.LocalDate
@@ -44,15 +44,15 @@ fun ScheduleMonthView(
     manualDelayMinutes: Long? = null,
     favoriteSourceIds: Set<String> = emptySet(),
     pinnedSources: Set<String> = emptySet(),
-    libraryAnimeTitles: Set<String> = emptySet(),
-    libraryAnimeIdByTitle: Map<String, Long> = emptyMap(),
-    librarySourcesByTitle: Map<String, Set<String>> = emptyMap(),
+    libraryIndex: ScheduleLibraryIndex = ScheduleLibraryIndex(),
     onceMediaIds: Set<String> = emptySet(),
     seriesMediaIds: Set<String> = emptySet(),
     onToggleAlert: (AiringScheduleEntry) -> Unit,
     onLongClickAlert: (AiringScheduleEntry) -> Unit,
-    onOpenAnime: (Long) -> Unit,
-    onSearchAnime: (String) -> Unit,
+    /** Tap: open the manually picked / library anime, or start a pick-recording global search. */
+    onEntryClick: (AiringScheduleEntry, String) -> Unit,
+    /** Explicit global search whose chosen result becomes the entry's manual pick. */
+    onSearchAnime: (AiringScheduleEntry, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val zone = remember { ZoneId.systemDefault() }
@@ -133,16 +133,7 @@ fun ScheduleMonthView(
                             entry.mediaId.toString() in onceMediaIds -> BellNotifyState.ONCE
                             else -> BellNotifyState.NONE
                         }
-                        val matchedAnimeId = remember(entry.scheduleId, libraryAnimeIdByTitle) {
-                            val candidates = ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                            val candidateKeys = candidates.flatMap { ScheduleTitleMatcher.normalizedKeys(it) }
-                            candidateKeys.firstNotNullOfOrNull { libraryAnimeIdByTitle[it] }
-                        }
-                        val isInLibrary = matchedAnimeId != null || remember(entry.scheduleId, libraryAnimeTitles) {
-                            val candidates = ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                            val candidateKeys = candidates.flatMap { ScheduleTitleMatcher.normalizedKeys(it) }
-                            candidateKeys.any { it in libraryAnimeTitles }
-                        }
+                        val isInLibrary = remember(entry, libraryIndex) { libraryIndex.resolve(entry).inLibrary }
                         ScheduleAnimeCard(
                             entry = entry,
                             titleLanguage = titleLanguage,
@@ -152,11 +143,9 @@ fun ScheduleMonthView(
                             pinnedSourceIds = pinnedSources,
                             isInLibrary = isInLibrary,
                             notifyState = bellState,
-                            onSearchClick = {
-                                if (matchedAnimeId != null) onOpenAnime(matchedAnimeId)
-                                else onSearchAnime(it)
-                            },
-                            onAddToLibraryClick = { onSearchAnime(it) },
+                            onClick = { onEntryClick(entry, it) },
+                            onSearchClick = { onSearchAnime(entry, it) },
+                            onAddToLibraryClick = { onEntryClick(entry, it) },
                             onToggleNotifyOnce = { onToggleAlert(entry) },
                             onToggleNotifySeries = { onLongClickAlert(entry) },
                         )
@@ -209,16 +198,7 @@ fun ScheduleMonthView(
                         entry.mediaId.toString() in onceMediaIds -> BellNotifyState.ONCE
                         else -> BellNotifyState.NONE
                     }
-                    val matchedAnimeId = remember(entry.scheduleId, libraryAnimeIdByTitle) {
-                        val candidates = ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                        val candidateKeys = candidates.flatMap { ScheduleTitleMatcher.normalizedKeys(it) }
-                        candidateKeys.firstNotNullOfOrNull { libraryAnimeIdByTitle[it] }
-                    }
-                    val isInLibrary = matchedAnimeId != null || remember(entry.scheduleId, libraryAnimeTitles) {
-                        val candidates = ScheduleTitleMatcher.candidateTitlesFromEntry(entry)
-                        val candidateKeys = candidates.flatMap { ScheduleTitleMatcher.normalizedKeys(it) }
-                        candidateKeys.any { it in libraryAnimeTitles }
-                    }
+                    val isInLibrary = remember(entry, libraryIndex) { libraryIndex.resolve(entry).inLibrary }
                     ScheduleAnimeCard(
                         entry = entry,
                         titleLanguage = titleLanguage,
@@ -228,11 +208,9 @@ fun ScheduleMonthView(
                         pinnedSourceIds = pinnedSources,
                         isInLibrary = isInLibrary,
                         notifyState = bellState,
-                        onSearchClick = {
-                            if (matchedAnimeId != null) onOpenAnime(matchedAnimeId)
-                            else onSearchAnime(it)
-                        },
-                        onAddToLibraryClick = { onSearchAnime(it) },
+                        onClick = { onEntryClick(entry, it) },
+                        onSearchClick = { onSearchAnime(entry, it) },
+                        onAddToLibraryClick = { onEntryClick(entry, it) },
                         onToggleNotifyOnce = { onToggleAlert(entry) },
                         onToggleNotifySeries = { onLongClickAlert(entry) },
                     )
