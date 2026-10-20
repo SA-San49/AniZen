@@ -141,6 +141,7 @@ class AnnouncementsApi(
             popularity = popularity,
             score = averageScore,
             isAdult = isAdult,
+            coverColor = coverImage?.color,
         )
     }
 

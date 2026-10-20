@@ -30,6 +30,10 @@ class AnnouncementsScreenModel(
     var showFiltersDialog by mutableStateOf(false)
         private set
 
+    /** True while a user-initiated refresh runs on top of already visible content. */
+    var isRefreshing by mutableStateOf(false)
+        private set
+
     fun openFilters() {
         showFiltersDialog = true
     }
@@ -50,8 +54,9 @@ class AnnouncementsScreenModel(
             val autoRefresh: AnnouncementAutoRefresh,
             val fromCache: Boolean,
         ) : State {
-            val filteredEntries: ImmutableList<AnnouncementEntry>
-                get() = allEntries
+            // Computed once per state instance (not on every access / recomposition).
+            val filteredEntries: ImmutableList<AnnouncementEntry> by lazy {
+                allEntries
                     .asSequence()
                     .filter { selectedCategory == null || it.category == selectedCategory }
                     .filter { selectedYear == null || it.expectedYear == selectedYear }
@@ -79,12 +84,27 @@ class AnnouncementsScreenModel(
                     }
                     .toList()
                     .toImmutableList()
+            }
 
-            val availableYears: List<Int>
-                get() = allEntries
+            val availableYears: List<Int> by lazy {
+                allEntries
                     .mapNotNull { it.expectedYear }
                     .distinct()
                     .sortedDescending()
+            }
+
+            /** Per-category counts honouring every filter except the category itself. */
+            val categoryCounts: Map<AnnouncementCategory, Int> by lazy {
+                allEntries
+                    .asSequence()
+                    .filter { selectedYear == null || it.expectedYear == selectedYear }
+                    .filter { includeAdult || !it.isAdult }
+                    .groupingBy { it.category }
+                    .eachCount()
+            }
+
+            val hasContentFilters: Boolean
+                get() = selectedCategory != null || selectedYear != null
         }
 
         data class Error(val cachedEntries: ImmutableList<AnnouncementEntry>) : State
@@ -95,31 +115,41 @@ class AnnouncementsScreenModel(
     }
 
     fun load(forceRefresh: Boolean = false) {
+        if (forceRefresh && isRefreshing) return
         screenModelScope.launch {
             val previous = mutableState.value as? State.Success
-            if (previous == null || forceRefresh) {
+            if (previous == null) {
                 mutableState.value = State.Loading
+            } else if (forceRefresh) {
+                // Keep the list on screen and show the pull-to-refresh indicator instead
+                isRefreshing = true
             }
-            when (val result = repository.getAnnouncements(forceRefresh)) {
-                is AnnouncementsRepository.Result.Success -> {
-                    mutableState.value = State.Success(
-                        allEntries = result.entries.toImmutableList(),
-                        selectedCategory = previous?.selectedCategory
-                            ?: preferences.categoryFilter().get().takeIf { it.isNotEmpty() }?.let { runCatching { AnnouncementCategory.valueOf(it) }.getOrNull() },
-                        selectedYear = previous?.selectedYear ?: preferences.yearFilter().get().toIntOrNull(),
-                        sort = previous?.sort ?: preferences.sort().get(),
-                        includeAdult = previous?.includeAdult ?: preferences.includeAdult().get(),
-                        autoRefresh = previous?.autoRefresh ?: preferences.autoRefresh().get(),
-                        fromCache = result.fromCache,
-                    )
-                }
-                is AnnouncementsRepository.Result.Failure -> {
-                    if (previous != null) {
-                        mutableState.value = previous
-                    } else {
-                        mutableState.value = State.Error(result.cachedEntries.toImmutableList())
-                    }
-                }
+            try {
+                applyResult(previous, repository.getAnnouncements(forceRefresh))
+            } finally {
+                isRefreshing = false
+            }
+        }
+    }
+
+    private fun applyResult(previous: State.Success?, result: AnnouncementsRepository.Result) {
+        // Prefer the latest state so filter changes made during a refresh are not reverted
+        val latest = mutableState.value as? State.Success ?: previous
+        when (result) {
+            is AnnouncementsRepository.Result.Success -> {
+                mutableState.value = State.Success(
+                    allEntries = result.entries.toImmutableList(),
+                    selectedCategory = latest?.selectedCategory
+                        ?: preferences.categoryFilter().get().takeIf { it.isNotEmpty() }?.let { runCatching { AnnouncementCategory.valueOf(it) }.getOrNull() },
+                    selectedYear = latest?.selectedYear ?: preferences.yearFilter().get().toIntOrNull(),
+                    sort = latest?.sort ?: preferences.sort().get(),
+                    includeAdult = latest?.includeAdult ?: preferences.includeAdult().get(),
+                    autoRefresh = latest?.autoRefresh ?: preferences.autoRefresh().get(),
+                    fromCache = result.fromCache,
+                )
+            }
+            is AnnouncementsRepository.Result.Failure -> {
+                mutableState.value = latest ?: State.Error(result.cachedEntries.toImmutableList())
             }
         }
     }
@@ -165,6 +195,14 @@ class AnnouncementsScreenModel(
         val current = mutableState.value as? State.Success ?: return
         preferences.autoRefresh().set(autoRefresh)
         mutableState.value = current.copy(autoRefresh = autoRefresh)
+    }
+
+    /** Clears only the content filters (category + year); used by the empty state. */
+    fun clearFilters() {
+        val current = mutableState.value as? State.Success ?: return
+        preferences.categoryFilter().set("")
+        preferences.yearFilter().set("")
+        mutableState.value = current.copy(selectedCategory = null, selectedYear = null)
     }
 
     fun resetFilters() {

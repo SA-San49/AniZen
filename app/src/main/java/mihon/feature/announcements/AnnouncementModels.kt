@@ -63,4 +63,6 @@ data class AnnouncementEntry(
     val popularity: Int? = null,
     val score: Int? = null,
     val isAdult: Boolean = false,
+    /** Dominant cover colour from AniList (e.g. "#e4a15d"), used as an instant placeholder. */
+    val coverColor: String? = null,
 ) : Parcelable
