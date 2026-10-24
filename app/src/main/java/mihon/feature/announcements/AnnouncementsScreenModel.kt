@@ -22,6 +22,8 @@ class AnnouncementsScreenModel(
             selectedYear = preferences.yearFilter().get().toIntOrNull(),
             sort = preferences.sort().get(),
             includeAdult = preferences.includeAdult().get(),
+            lockBanner = preferences.lockBanner().get(),
+            showCatalog = preferences.showCatalog().get(),
             autoRefresh = preferences.autoRefresh().get(),
             fromCache = true,
         )
@@ -51,6 +53,8 @@ class AnnouncementsScreenModel(
             val selectedYear: Int?,
             val sort: AnnouncementSort,
             val includeAdult: Boolean,
+            val lockBanner: Boolean,
+            val showCatalog: Boolean,
             val autoRefresh: AnnouncementAutoRefresh,
             val fromCache: Boolean,
         ) : State {
@@ -144,6 +148,8 @@ class AnnouncementsScreenModel(
                     selectedYear = latest?.selectedYear ?: preferences.yearFilter().get().toIntOrNull(),
                     sort = latest?.sort ?: preferences.sort().get(),
                     includeAdult = latest?.includeAdult ?: preferences.includeAdult().get(),
+                    lockBanner = latest?.lockBanner ?: preferences.lockBanner().get(),
+                    showCatalog = latest?.showCatalog ?: preferences.showCatalog().get(),
                     autoRefresh = latest?.autoRefresh ?: preferences.autoRefresh().get(),
                     fromCache = result.fromCache,
                 )
@@ -162,6 +168,8 @@ class AnnouncementsScreenModel(
             selectedYear = preferences.yearFilter().get().toIntOrNull(),
             sort = preferences.sort().get(),
             includeAdult = preferences.includeAdult().get(),
+            lockBanner = preferences.lockBanner().get(),
+            showCatalog = preferences.showCatalog().get(),
             autoRefresh = preferences.autoRefresh().get(),
             fromCache = true,
         )
@@ -191,6 +199,18 @@ class AnnouncementsScreenModel(
         mutableState.value = current.copy(includeAdult = include)
     }
 
+    fun setLockBanner(locked: Boolean) {
+        val current = mutableState.value as? State.Success ?: return
+        preferences.lockBanner().set(locked)
+        mutableState.value = current.copy(lockBanner = locked)
+    }
+
+    fun setShowCatalog(show: Boolean) {
+        val current = mutableState.value as? State.Success ?: return
+        preferences.showCatalog().set(show)
+        mutableState.value = current.copy(showCatalog = show)
+    }
+
     fun setAutoRefresh(autoRefresh: AnnouncementAutoRefresh) {
         val current = mutableState.value as? State.Success ?: return
         preferences.autoRefresh().set(autoRefresh)
@@ -211,12 +231,16 @@ class AnnouncementsScreenModel(
         preferences.yearFilter().set("")
         preferences.sort().set(AnnouncementSort.AIRING_SOON)
         preferences.includeAdult().set(false)
+        preferences.lockBanner().set(false)
+        preferences.showCatalog().set(true)
         preferences.autoRefresh().set(AnnouncementAutoRefresh.OFF)
         mutableState.value = current.copy(
             selectedCategory = null,
             selectedYear = null,
             sort = AnnouncementSort.AIRING_SOON,
             includeAdult = false,
+            lockBanner = false,
+            showCatalog = true,
             autoRefresh = AnnouncementAutoRefresh.OFF,
         )
     }

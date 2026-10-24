@@ -25,6 +25,10 @@ class AnnouncementsPreferences(private val preferenceStore: PreferenceStore) {
 
     fun includeAdult() = preferenceStore.getBoolean("announcements_include_adult", false)
 
+    fun lockBanner() = preferenceStore.getBoolean("announcements_lock_banner", false)
+
+    fun showCatalog() = preferenceStore.getBoolean("announcements_show_catalog", true)
+
     fun autoRefresh() = preferenceStore.getEnum(
         "announcements_auto_refresh",
         AnnouncementAutoRefresh.ONE_DAY,

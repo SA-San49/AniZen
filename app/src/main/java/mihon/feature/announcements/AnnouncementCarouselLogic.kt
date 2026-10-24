@@ -27,8 +27,17 @@ internal fun AnnouncementEntry.isCarouselEligible(now: Long): Boolean =
     exactReleaseDate?.let { it + CAROUSEL_GRACE_MS > now } == true
 
 /**
+ * The hero has its own fixed Airing soon feed. Category, year, and catalog sort filters do not
+ * apply; the adult-content preference is its only shared filter.
+ */
+internal fun carouselSourceEntries(
+    entries: List<AnnouncementEntry>,
+    includeAdult: Boolean,
+): List<AnnouncementEntry> = entries.filter { includeAdult || !it.isAdult }
+
+/**
  * Up to [maxItems] nearest eligible entries, earliest release first.
- * [entries] should already have the user's filters applied.
+ * [entries] should come from [carouselSourceEntries] so only the adult-content preference applies.
  */
 internal fun selectCarouselEntries(
     entries: List<AnnouncementEntry>,

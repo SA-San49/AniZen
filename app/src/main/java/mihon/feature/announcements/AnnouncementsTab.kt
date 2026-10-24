@@ -1,5 +1,6 @@
 package mihon.feature.announcements
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -94,6 +95,8 @@ object AnnouncementsTab {
                 onSelectSort = screenModel::setSort,
                 onSelectYear = screenModel::selectYear,
                 onSetIncludeAdult = screenModel::setIncludeAdult,
+                onSetLockBanner = screenModel::setLockBanner,
+                onSetShowCatalog = screenModel::setShowCatalog,
                 onSetAutoRefresh = screenModel::setAutoRefresh,
                 onReset = screenModel::resetFilters,
             )
@@ -102,6 +105,7 @@ object AnnouncementsTab {
 
     // region Success
 
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun SuccessState(
         contentPadding: PaddingValues,
@@ -114,8 +118,11 @@ object AnnouncementsTab {
         onClearFilters: () -> Unit,
     ) {
         val entries = state.filteredEntries
-        // The hero carousel only makes sense when the list is ordered by release date
-        val carousel = rememberCarouselEntries(entries, enabled = state.sort == AnnouncementSort.AIRING_SOON)
+        // Keep the hero independent from category, year, and catalog sort filters.
+        val carouselSource = remember(state.allEntries, state.includeAdult) {
+            carouselSourceEntries(state.allEntries, includeAdult = state.includeAdult)
+        }
+        val carousel = rememberCarouselEntries(carouselSource, enabled = true)
         // Carousel entries live in the carousel, so keep them out of the list below (no duplicates)
         val rest = remember(entries, carousel) {
             if (carousel.isEmpty()) {
@@ -155,7 +162,18 @@ object AnnouncementsTab {
                         onOpenFilters = onOpenFilters,
                     )
                 }
-                if (carousel.isNotEmpty()) {
+                if (carousel.isNotEmpty() && state.lockBanner) {
+                    stickyHeader(key = "featured", contentType = "featured") {
+                        FeaturedAnnouncementCarousel(
+                            entries = carousel,
+                            onEntryClick = onCardClick,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.background)
+                                .padding(top = 4.dp, bottom = 8.dp),
+                        )
+                    }
+                } else if (carousel.isNotEmpty()) {
                     item(key = "featured", contentType = "featured") {
                         FeaturedAnnouncementCarousel(
                             entries = carousel,
@@ -164,25 +182,27 @@ object AnnouncementsTab {
                         )
                     }
                 }
-                if (entries.isEmpty()) {
-                    item(key = "empty", contentType = "empty") {
-                        EmptyState(
-                            hasFilters = state.hasContentFilters,
-                            onClearFilters = onClearFilters,
-                            onRefresh = onRefresh,
+                if (state.showCatalog) {
+                    if (entries.isEmpty()) {
+                        item(key = "empty", contentType = "empty") {
+                            EmptyState(
+                                hasFilters = state.hasContentFilters,
+                                onClearFilters = onClearFilters,
+                                onRefresh = onRefresh,
+                            )
+                        }
+                    }
+                    items(
+                        items = rest,
+                        key = { it.mediaId },
+                        contentType = { "announcement" },
+                    ) { entry ->
+                        AnnouncementCard(
+                            entry = entry,
+                            onClick = { onCardClick(entry) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp),
                         )
                     }
-                }
-                items(
-                    items = rest,
-                    key = { it.mediaId },
-                    contentType = { "announcement" },
-                ) { entry ->
-                    AnnouncementCard(
-                        entry = entry,
-                        onClick = { onCardClick(entry) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp),
-                    )
                 }
             }
         }
@@ -516,6 +536,8 @@ object AnnouncementsTab {
         onSelectSort: (AnnouncementSort) -> Unit,
         onSelectYear: (Int?) -> Unit,
         onSetIncludeAdult: (Boolean) -> Unit,
+        onSetLockBanner: (Boolean) -> Unit,
+        onSetShowCatalog: (Boolean) -> Unit,
         onSetAutoRefresh: (AnnouncementAutoRefresh) -> Unit,
         onReset: () -> Unit,
     ) {
@@ -590,35 +612,26 @@ object AnnouncementsTab {
                     }
                 }
 
-                Surface(
-                    onClick = { onSetIncludeAdult(!state.includeAdult) },
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 20.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Include 18+ content",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Text(
-                                text = "Show adult and NSFW announcements",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = state.includeAdult,
-                            onCheckedChange = onSetIncludeAdult,
-                        )
-                    }
-                }
+                FilterSwitchRow(
+                    title = "Include 18+ content",
+                    description = "Show adult and NSFW announcements",
+                    checked = state.includeAdult,
+                    onCheckedChange = onSetIncludeAdult,
+                )
+
+                FilterSwitchRow(
+                    title = "Lock banner",
+                    description = "Keep the Airing soon banner fixed while scrolling",
+                    checked = state.lockBanner,
+                    onCheckedChange = onSetLockBanner,
+                )
+
+                FilterSwitchRow(
+                    title = "Show announcement catalog",
+                    description = "Show or hide the announcement cards below the banner",
+                    checked = state.showCatalog,
+                    onCheckedChange = onSetShowCatalog,
+                )
 
                 SheetSection(title = "Auto refresh") {
                     AnnouncementAutoRefresh.entries.forEach { refresh ->
@@ -642,6 +655,44 @@ object AnnouncementsTab {
                         text = if (resultCount == 1) "Show 1 result" else "Show $resultCount results",
                     )
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun FilterSwitchRow(
+        title: String,
+        description: String,
+        checked: Boolean,
+        onCheckedChange: (Boolean) -> Unit,
+    ) {
+        Surface(
+            onClick = { onCheckedChange(!checked) },
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
             }
         }
     }

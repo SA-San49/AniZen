@@ -27,6 +27,17 @@ class AnnouncementCarouselLogicTest {
     private fun ids(list: List<AnnouncementEntry>) = list.map { it.mediaId }
 
     @Test
+    fun `carousel source ignores categories and keeps only the adult content filter`() {
+        val newSeason = entry(1, now + hour)
+        val movie = entry(2, now + 2 * hour).copy(category = AnnouncementCategory.MOVIE, expectedYear = 2029)
+        val adult = entry(3, now + 3 * hour).copy(isAdult = true)
+        val entries = listOf(newSeason, movie, adult)
+
+        ids(carouselSourceEntries(entries, includeAdult = false)) shouldBe listOf(1, 2)
+        ids(carouselSourceEntries(entries, includeAdult = true)) shouldBe listOf(1, 2, 3)
+    }
+
+    @Test
     fun `seven pages when more than seven are eligible`() {
         val entries = (1..10).map { entry(it, now + it * hour) }
         ids(selectCarouselEntries(entries, now)) shouldBe (1..7).toList()
