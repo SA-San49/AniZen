@@ -114,12 +114,16 @@ object AnnouncementsTab {
         onClearFilters: () -> Unit,
     ) {
         val entries = state.filteredEntries
-        // Hero only makes sense when the list is ordered by release date
-        val featured = remember(entries, state.sort) {
-            entries.firstOrNull()?.takeIf { state.sort == AnnouncementSort.AIRING_SOON && it.isUpcomingWithDate() }
-        }
-        val rest = remember(entries, featured) {
-            if (featured != null) entries.subList(1, entries.size) else entries
+        // The hero carousel only makes sense when the list is ordered by release date
+        val carousel = rememberCarouselEntries(entries, enabled = state.sort == AnnouncementSort.AIRING_SOON)
+        // Carousel entries live in the carousel, so keep them out of the list below (no duplicates)
+        val rest = remember(entries, carousel) {
+            if (carousel.isEmpty()) {
+                entries
+            } else {
+                val shown = carousel.mapTo(HashSet(carousel.size * 2)) { it.mediaId }
+                entries.filter { it.mediaId !in shown }
+            }
         }
         val releasingThisWeek = remember(entries) {
             val now = System.currentTimeMillis()
@@ -151,12 +155,12 @@ object AnnouncementsTab {
                         onOpenFilters = onOpenFilters,
                     )
                 }
-                if (featured != null) {
+                if (carousel.isNotEmpty()) {
                     item(key = "featured", contentType = "featured") {
-                        FeaturedAnnouncementCard(
-                            entry = featured,
-                            onClick = { onCardClick(featured) },
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                        FeaturedAnnouncementCarousel(
+                            entries = carousel,
+                            onEntryClick = onCardClick,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                         )
                     }
                 }
