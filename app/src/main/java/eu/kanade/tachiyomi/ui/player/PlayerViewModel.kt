@@ -447,7 +447,9 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun updateDecoder(decoder: Decoder) {
-        MPVLib.setPropertyString("hwdec", decoder.value)
+        // Switch off the UI thread (decoder re-init blocks) and make sure the YUV420P
+        // conversion filter cannot force HW/HW+ back to software decoding.
+        VideoChain.switchDecoder(decoder.value, decoderPreferences)
     }
 
     val getTrackLanguage: (Int) -> String = {

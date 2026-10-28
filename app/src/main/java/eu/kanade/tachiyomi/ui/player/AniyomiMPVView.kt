@@ -258,16 +258,18 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         MPVLib.setOptionString("dscale", scaler)
         MPVLib.setOptionString("dither", if (isHighQuality) "fruit" else "no")
 
-        when (decoderPreferences.videoDebanding().get()) {
-            Debanding.None -> {}
-            Debanding.CPU -> MPVLib.setOptionString("vf", "gradfun=radius=12")
-            Debanding.GPU -> MPVLib.setOptionString("deband", "yes")
+        if (decoderPreferences.videoDebanding().get() == Debanding.GPU) {
+            MPVLib.setOptionString("deband", "yes")
         }
 
         MPVLib.setOptionString("video-sync", "audio")
 
-        if (decoderPreferences.useYUV420P().get()) {
-            MPVLib.setOptionString("vf", "format=yuv420p")
+        // One labelled filter chain: the YUV420P conversion is only kept where it
+        // changes the frames (see VideoChain) and CPU debanding is no longer dropped
+        // when YUV420P is enabled.
+        val vfChain = VideoChain.initialChain(decoderPreferences)
+        if (vfChain.isNotEmpty()) {
+            MPVLib.setOptionString("vf", vfChain)
         }
 
         if (decoderPreferences.enableAnime4K().get()) {
@@ -376,6 +378,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         "eof-reached" to MPVLib.mpvFormat.MPV_FORMAT_FLAG,
         "hwdec-current" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
         "hwdec" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
+        "video-dec-params/pixelformat" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
         "user-data/current-anime/intro-length" to MPVLib.mpvFormat.MPV_FORMAT_INT64,
         "user-data/aniyomi/show_text" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
         "user-data/aniyomi/show_seek_text" to MPVLib.mpvFormat.MPV_FORMAT_STRING,

@@ -20,7 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.kanade.tachiyomi.ui.player.PlayerStats
 import `is`.xyz.mpv.MPVLib
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
@@ -28,7 +31,8 @@ import java.util.Locale
 @Composable
 fun InterpolationStatsOverlay() {
     LaunchedEffect(Unit) {
-        while (true) {
+        // mpv property reads block until the core is free; keep them off the UI thread.
+        withContext(Dispatchers.Default) { while (isActive) {
             PlayerStats.estimatedVfFps.value = MPVLib.getPropertyDouble("estimated-vf-fps") ?: 0.0
             PlayerStats.videoParamsFps.value = MPVLib.getPropertyDouble("video-params/fps") ?: 0.0
             PlayerStats.containerFps.value = MPVLib.getPropertyDouble("container-fps") ?: 0.0
@@ -51,7 +55,7 @@ fun InterpolationStatsOverlay() {
             PlayerStats.dheight.value = MPVLib.getPropertyInt("dheight")?.toLong() ?: 0L
 
             delay(1000)
-        }
+        } }
     }
     val vfFps by PlayerStats.estimatedVfFps.collectAsState(0.0)
     val sourceFps by PlayerStats.videoParamsFps.collectAsState(0.0)

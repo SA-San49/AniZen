@@ -1,10 +1,12 @@
 package eu.kanade.tachiyomi.ui.player
 
 import android.widget.Toast
+import eu.kanade.tachiyomi.ui.player.settings.DecoderPreferences
 import eu.kanade.tachiyomi.util.system.toast
 import `is`.xyz.mpv.MPVLib
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import uy.kohesive.injekt.injectLazy
 
 class PlayerObserver(val activity: PlayerActivity) :
     MPVLib.EventObserver,
@@ -36,7 +38,15 @@ class PlayerObserver(val activity: PlayerActivity) :
         postToPlayer { activity.onObserverEvent(property, value) }
     }
 
+    private val decoderPreferences: DecoderPreferences by injectLazy()
+
     override fun eventProperty(property: String, value: String) {
+        if (property == "video-dec-params/pixelformat" || property == "hwdec-current") {
+            // Handled on the player's video thread, not the UI thread.
+            if (!activity.player.isExiting && activity.player.initialized) {
+                VideoChain.onDecoderOutputChanged(decoderPreferences)
+            }
+        }
         postToPlayer { activity.onObserverEvent(property, value) }
     }
 

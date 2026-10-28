@@ -72,6 +72,8 @@ import eu.kanade.presentation.player.components.ExpandableCard
 import eu.kanade.presentation.player.components.SliderItem
 import eu.kanade.tachiyomi.ui.player.DebandSettings
 import eu.kanade.tachiyomi.ui.player.Debanding
+import eu.kanade.tachiyomi.ui.player.MpvVideoTuner
+import eu.kanade.tachiyomi.ui.player.VideoChain
 import eu.kanade.tachiyomi.ui.player.VideoFilterTheme
 import eu.kanade.tachiyomi.ui.player.VideoFilters
 import eu.kanade.tachiyomi.ui.player.applyAnime4K
@@ -246,13 +248,13 @@ fun FiltersCard() {
                     VideoFilters.entries.forEach {
                         it.preference(decoderPreferences).delete()
                     }
-                    MPVLib.setPropertyString("vf", "")
-                    MPVLib.setPropertyInt("brightness", 0)
-                    MPVLib.setPropertyInt("contrast", 0)
-                    MPVLib.setPropertyInt("saturation", 0)
-                    MPVLib.setPropertyInt("gamma", 0)
-                    MPVLib.setPropertyInt("hue", 0)
-                    MPVLib.setPropertyInt("sharpen", 0)
+                    VideoChain.clear()
+                    MpvVideoTuner.setInt("brightness", 0)
+                    MpvVideoTuner.setInt("contrast", 0)
+                    MpvVideoTuner.setInt("saturation", 0)
+                    MpvVideoTuner.setInt("gamma", 0)
+                    MpvVideoTuner.setInt("hue", 0)
+                    MpvVideoTuner.setInt("sharpen", 0)
                 },
             ) {
                 Text(text = stringResource(MR.strings.action_reset))
@@ -270,8 +272,12 @@ fun FiltersCard() {
                         value = value.toFloat(),
                         valueText = value.toString(),
                         onChange = {
-                            filter.preference(decoderPreferences).set(it.toInt())
-                            applyFilter(filter, it.toInt(), decoderPreferences)
+                            val newValue = it.toInt()
+                            // Slider drags emit many events per step; only real changes reach mpv.
+                            if (newValue != value) {
+                                filter.preference(decoderPreferences).set(newValue)
+                                applyFilter(filter, newValue, decoderPreferences)
+                            }
                         },
                         max = filter.max.toFloat(),
                         min = filter.min.toFloat(),
@@ -334,7 +340,7 @@ fun DebandCard() {
                     DebandSettings.entries.forEach { setting ->
                         val pref = setting.preference(decoderPreferences)
                         pref.delete()
-                        MPVLib.setPropertyInt(setting.mpvProperty, pref.get())
+                        MpvVideoTuner.setInt(setting.mpvProperty, pref.get())
                     }
                 }) {
                     Row(
@@ -357,8 +363,10 @@ fun DebandCard() {
                                 value = value,
                                 valueText = value.toString(),
                                 onChange = {
-                                    setting.preference(decoderPreferences).set(it)
-                                    applyDebandSetting(setting, it)
+                                    if (it != value) {
+                                        setting.preference(decoderPreferences).set(it)
+                                        applyDebandSetting(setting, it)
+                                    }
                                 },
                                 max = setting.end,
                                 min = setting.start,
