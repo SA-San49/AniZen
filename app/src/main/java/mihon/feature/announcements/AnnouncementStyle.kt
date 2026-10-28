@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,9 +42,22 @@ import java.util.Locale
  * than clip() wherever possible so no extra graphics layers are created.
  */
 
-internal val AnnouncementCardShape = RoundedCornerShape(20.dp)
-internal val AnnouncementCoverShape = RoundedCornerShape(14.dp)
-internal val AnnouncementHeroShape = RoundedCornerShape(28.dp)
+internal val AnnouncementCardShape = RoundedCornerShape(24.dp)
+internal val AnnouncementCoverShape = RoundedCornerShape(16.dp)
+internal val AnnouncementHeroShape = RoundedCornerShape(32.dp)
+
+/** Hero height, shared with the loading skeleton so nothing jumps when data arrives. */
+internal val AnnouncementHeroHeight = 244.dp
+
+private val StarColor = Color(0xFFFFB938)
+
+/** Frosted look for chips that sit on top of artwork: translucent fill + hairline edge. */
+private val GlassFill = Color.White.copy(alpha = 0.16f)
+private val GlassEdge = Color.White.copy(alpha = 0.24f)
+
+internal fun Modifier.glassPill(): Modifier = this
+    .background(GlassFill, CircleShape)
+    .border(0.75.dp, GlassEdge, CircleShape)
 
 internal fun AnnouncementCategory.displayName(): String = when (this) {
     AnnouncementCategory.NEW_SEASON -> "New Season"
@@ -140,11 +154,10 @@ internal fun CategoryPill(
     onImage: Boolean = false,
 ) {
     val accent = category.accent()
-    val background = if (onImage) Color.Black.copy(alpha = 0.45f) else accent.copy(alpha = 0.16f)
     val content = if (onImage) Color.White else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = modifier
-            .background(background, CircleShape)
+            .then(if (onImage) Modifier.glassPill() else Modifier.background(accent.copy(alpha = 0.16f), CircleShape))
             .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -168,16 +181,19 @@ internal fun CategoryPill(
 internal fun ReleasePill(
     info: ReleaseInfo,
     modifier: Modifier = Modifier,
+    onImage: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
-    val (background, content) = when (info.urgency) {
-        ReleaseUrgency.NOW, ReleaseUrgency.SOON -> colors.primary to colors.onPrimary
-        ReleaseUrgency.LATER -> colors.secondaryContainer to colors.onSecondaryContainer
-        ReleaseUrgency.UNKNOWN -> colors.surfaceContainerHighest to colors.onSurfaceVariant
+    val urgent = info.urgency == ReleaseUrgency.NOW || info.urgency == ReleaseUrgency.SOON
+    val (background, content) = when {
+        urgent -> colors.primary to colors.onPrimary
+        onImage -> Color.Transparent to Color.White
+        info.urgency == ReleaseUrgency.LATER -> colors.secondaryContainer to colors.onSecondaryContainer
+        else -> colors.surfaceContainerHighest to colors.onSurfaceVariant
     }
     Row(
         modifier = modifier
-            .background(background, CircleShape)
+            .then(if (onImage && !urgent) Modifier.glassPill() else Modifier.background(background, CircleShape))
             .padding(start = 8.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -207,7 +223,9 @@ internal fun AnnouncementCover(
     modifier: Modifier = Modifier,
     shape: Shape = AnnouncementCoverShape,
     outlined: Boolean = false,
+    borderColor: Color? = null,
 ) {
+    val stroke = borderColor ?: if (outlined) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) else null
     val base = modifier
         .clip(shape)
         .background(placeholder)
@@ -215,10 +233,43 @@ internal fun AnnouncementCover(
         model = url,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
-        modifier = if (outlined) {
-            base.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), shape)
-        } else {
-            base
-        },
+        modifier = if (stroke != null) base.border(1.dp, stroke, shape) else base,
     )
+}
+
+/** Compact "★ 82%" badge. [onImage] switches to the frosted variant used on artwork. */
+@Composable
+internal fun ScoreBadge(
+    score: Int,
+    modifier: Modifier = Modifier,
+    onImage: Boolean = false,
+) {
+    val content = if (onImage) Color.White else MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = modifier
+            .then(
+                if (onImage) {
+                    Modifier.glassPill()
+                } else {
+                    Modifier.background(StarColor.copy(alpha = 0.16f), CircleShape)
+                },
+            )
+            .padding(start = 6.dp, end = 8.dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Star,
+            contentDescription = "Score",
+            tint = StarColor,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            text = "$score%",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = content,
+            maxLines = 1,
+        )
+    }
 }

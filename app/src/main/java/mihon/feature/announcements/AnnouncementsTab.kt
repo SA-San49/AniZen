@@ -1,5 +1,6 @@
 package mihon.feature.announcements
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,10 +25,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -147,19 +148,19 @@ object AnnouncementsTab {
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = contentPadding + PaddingValues(bottom = 16.dp),
             ) {
-                item(key = "quick_filters", contentType = "quick_filters") {
-                    QuickCategoryRow(
-                        selected = state.selectedCategory,
-                        counts = state.categoryCounts,
-                        onSelect = onSelectCategory,
-                    )
-                }
                 item(key = "summary", contentType = "summary") {
                     SummaryRow(
                         count = entries.size,
                         releasingThisWeek = releasingThisWeek,
                         sort = state.sort,
                         onOpenFilters = onOpenFilters,
+                    )
+                }
+                item(key = "quick_filters", contentType = "quick_filters") {
+                    QuickCategoryRow(
+                        selected = state.selectedCategory,
+                        counts = state.categoryCounts,
+                        onSelect = onSelectCategory,
                     )
                 }
                 if (carousel.isNotEmpty() && state.lockBanner) {
@@ -192,6 +193,14 @@ object AnnouncementsTab {
                             )
                         }
                     }
+                    if (rest.isNotEmpty()) {
+                        item(key = "catalog_header", contentType = "section_header") {
+                            SectionHeader(
+                                title = "Browse all",
+                                trailing = if (rest.size == 1) "1 title" else "${rest.size} titles",
+                            )
+                        }
+                    }
                     items(
                         items = rest,
                         key = { it.mediaId },
@@ -200,7 +209,7 @@ object AnnouncementsTab {
                         AnnouncementCard(
                             entry = entry,
                             onClick = { onCardClick(entry) },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         )
                     }
                 }
@@ -221,7 +230,7 @@ object AnnouncementsTab {
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 4.dp),
+                .padding(top = 4.dp, bottom = 12.dp),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -256,8 +265,14 @@ object AnnouncementsTab {
         onClick: () -> Unit,
     ) {
         val colors = MaterialTheme.colorScheme
-        val container = if (selected) colors.primary else colors.surfaceContainerHigh
-        val content = if (selected) colors.onPrimary else colors.onSurface
+        val container by animateColorAsState(
+            targetValue = if (selected) colors.primary else colors.surfaceContainerHigh,
+            label = "chipContainer",
+        )
+        val content by animateColorAsState(
+            targetValue = if (selected) colors.onPrimary else colors.onSurface,
+            label = "chipContent",
+        )
         Surface(
             selected = selected,
             onClick = onClick,
@@ -266,7 +281,7 @@ object AnnouncementsTab {
             contentColor = content,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (accent != null) {
@@ -280,14 +295,20 @@ object AnnouncementsTab {
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                // Count sits in its own little capsule, like modern tab badges.
                 Text(
                     text = count.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = content.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = content,
                     maxLines = 1,
+                    modifier = Modifier
+                        .background(content.copy(alpha = 0.14f), CircleShape)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
             }
         }
@@ -300,36 +321,77 @@ object AnnouncementsTab {
         sort: AnnouncementSort,
         onOpenFilters: () -> Unit,
     ) {
+        val colors = MaterialTheme.colorScheme
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                .padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (count == 1) "1 announcement" else "$count announcements",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    text = "Upcoming anime",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
                 )
                 Text(
-                    text = when (releasingThisWeek) {
-                        0 -> "Pull down to refresh"
-                        1 -> "1 releasing this week"
-                        else -> "$releasingThisWeek releasing this week"
+                    text = buildString {
+                        append(if (count == 1) "1 announcement" else "$count announcements")
+                        if (releasingThisWeek > 0) append(" · $releasingThisWeek this week")
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            TextButton(onClick = onOpenFilters) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.Sort,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+            Surface(
+                onClick = onOpenFilters,
+                shape = CircleShape,
+                color = colors.secondaryContainer,
+                contentColor = colors.onSecondaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "Sort and filter",
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = sort.displayName(),
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SectionHeader(title: String, trailing: String?) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            if (trailing != null) {
+                Text(
+                    text = trailing,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = sort.displayName())
             }
         }
     }
@@ -393,6 +455,21 @@ object AnnouncementsTab {
                 .padding(contentPadding),
         ) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Column(
+                modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 180.dp, height = 22.dp)
+                        .background(block, RoundedCornerShape(8.dp)),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 140.dp, height = 12.dp)
+                        .background(block, RoundedCornerShape(6.dp)),
+                )
+            }
             Row(
                 modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -407,22 +484,22 @@ object AnnouncementsTab {
             }
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
                     .fillMaxWidth()
-                    .height(212.dp)
+                    .height(AnnouncementHeroHeight)
                     .background(block, AnnouncementHeroShape),
             )
             repeat(3) {
                 Row(
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 5.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                         .fillMaxWidth()
                         .background(card, AnnouncementCardShape)
-                        .padding(10.dp),
+                        .padding(12.dp),
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(width = 82.dp, height = 116.dp)
+                            .size(width = 92.dp, height = 132.dp)
                             .background(block, AnnouncementCoverShape),
                     )
                     Column(

@@ -1,16 +1,22 @@
 package mihon.feature.announcements
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -23,10 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -37,6 +42,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.absoluteValue
 
 /**
  * Picks the carousel entries from the already filtered list and keeps them correct over time.
@@ -158,7 +164,7 @@ internal fun FeaturedAnnouncementCarousel(
         }
     }
 
-    Box(
+    Column(
         modifier = modifier.pointerInput(Unit) {
             // Observe only (Initial pass, nothing consumed) so taps, long presses and the
             // pager's own drag handling keep working exactly as before.
@@ -179,23 +185,35 @@ internal fun FeaturedAnnouncementCarousel(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = rotatable,
+            // Peek the neighbouring heroes so the carousel reads as swipeable at a glance.
+            contentPadding = PaddingValues(horizontal = if (rotatable) 20.dp else 16.dp),
+            pageSpacing = 10.dp,
         ) { page ->
             val entry = entries.getOrNull(carouselIndexForPage(page, entries.size))
             if (entry != null) {
                 FeaturedAnnouncementCard(
                     entry = entry,
                     onClick = { onEntryClick(entry) },
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.graphicsLayer {
+                        // Read in the draw layer only: swiping never recomposes the cards.
+                        val offset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                            .absoluteValue
+                            .coerceIn(0f, 1f)
+                        val scale = 1f - 0.08f * offset
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = 1f - 0.4f * offset
+                    },
                 )
             }
         }
         if (rotatable) {
-            CarouselIndicator(
+            CarouselDots(
                 pagerState = pagerState,
                 size = size,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 14.dp, end = 30.dp),
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 12.dp),
             )
         }
     }
@@ -218,22 +236,37 @@ private suspend fun advanceCarousel(pagerState: PagerState, size: Int) {
 }
 
 @Composable
-private fun CarouselIndicator(
+private fun CarouselDots(
     pagerState: PagerState,
     size: Int,
     modifier: Modifier = Modifier,
 ) {
-    // Derived so only the tiny label recomposes when the page changes.
+    // Derived so only the dots recompose when the page changes.
     val position by remember(pagerState, size) {
-        derivedStateOf { carouselIndexForPage(pagerState.currentPage, size) + 1 }
+        derivedStateOf { carouselIndexForPage(pagerState.currentPage, size) }
     }
-    Text(
-        text = "$position/$size",
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Medium,
-        color = Color.White,
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    )
+    val active = MaterialTheme.colorScheme.primary
+    val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(size) { index ->
+            val selected = index == position
+            val width by animateDpAsState(
+                targetValue = if (selected) 22.dp else 6.dp,
+                label = "carouselDotWidth",
+            )
+            val color by animateColorAsState(
+                targetValue = if (selected) active else inactive,
+                label = "carouselDotColor",
+            )
+            Box(
+                modifier = Modifier
+                    .size(width = width, height = 6.dp)
+                    .background(color, CircleShape),
+            )
+        }
+    }
 }

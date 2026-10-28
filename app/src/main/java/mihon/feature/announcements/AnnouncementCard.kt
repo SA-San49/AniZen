@@ -14,13 +14,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -30,20 +32,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val CoverWidth = 82.dp
-private val CoverHeight = 116.dp
-private val StarColor = Color(0xFFFFB938)
+private val CoverWidth = 92.dp
+private val CoverHeight = 132.dp
+private val HeroPosterWidth = 78.dp
+private val HeroPosterHeight = 112.dp
+private val HeroPosterShape = RoundedCornerShape(14.dp)
 
-/** Static scrim shared by every featured card; built once, never re-allocated. */
+/** Static scrims shared by every featured card; built once, never re-allocated. */
 private val FeaturedScrim = Brush.verticalGradient(
-    0f to Color.Transparent,
-    0.35f to Color.Black.copy(alpha = 0.10f),
-    1f to Color.Black.copy(alpha = 0.86f),
+    0f to Color.Black.copy(alpha = 0.35f),
+    0.28f to Color.Transparent,
+    0.52f to Color.Black.copy(alpha = 0.18f),
+    1f to Color.Black.copy(alpha = 0.90f),
+)
+private val FeaturedSideScrim = Brush.horizontalGradient(
+    0f to Color.Black.copy(alpha = 0.45f),
+    0.65f to Color.Transparent,
 )
 
 /**
- * A flat, tonal list card. No elevation/shadow, fixed image size (so Coil decodes a small
- * bitmap) and bounded text lines (so measurement stays cheap while scrolling).
+ * Modern list card: tonal surface with a soft wash of the cover's own colour, a larger
+ * poster with the countdown sitting on it, and a compact meta row. Still flat (no shadow,
+ * no blur), fixed image size and bounded text so scrolling stays cheap.
  */
 @Composable
 fun AnnouncementCard(
@@ -53,7 +63,11 @@ fun AnnouncementCard(
 ) {
     val colors = MaterialTheme.colorScheme
     val release = releaseInfo(entry)
-    val placeholder = entry.coverTint()?.copy(alpha = 0.45f) ?: colors.surfaceContainerHighest
+    val tint = entry.coverTint()
+    val placeholder = tint?.copy(alpha = 0.45f) ?: colors.surfaceContainerHighest
+    val wash = remember(tint) {
+        tint?.let { Brush.horizontalGradient(listOf(it.copy(alpha = 0.20f), Color.Transparent)) }
+    }
 
     Surface(
         onClick = onClick,
@@ -61,69 +75,90 @@ fun AnnouncementCard(
         shape = AnnouncementCardShape,
         color = colors.surfaceContainerLow,
     ) {
-        Row(modifier = Modifier.padding(10.dp)) {
-            AnnouncementCover(
-                url = entry.coverImageUrl,
-                contentDescription = entry.title,
-                placeholder = placeholder,
-                modifier = Modifier.size(width = CoverWidth, height = CoverHeight),
-            )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = CoverHeight)
-                    .padding(start = 14.dp, top = 2.dp, end = 4.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CategoryPill(category = entry.category)
-                        if (entry.isAdult) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            AdultBadge()
-                        }
-                    }
-                    Text(
-                        text = entry.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
+        Box {
+            if (wash != null) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(wash),
+                )
+            }
+            Row(modifier = Modifier.padding(12.dp)) {
+                Box(modifier = Modifier.size(width = CoverWidth, height = CoverHeight)) {
+                    AnnouncementCover(
+                        url = entry.coverImageUrl,
+                        contentDescription = entry.title,
+                        placeholder = placeholder,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    if (entry.description.isNotBlank()) {
-                        Text(
-                            text = entry.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp),
+                    if (entry.isAdult) {
+                        AdultBadge(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp),
                         )
                     }
                 }
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .weight(1f)
+                        .heightIn(min = CoverHeight)
+                        .padding(start = 14.dp, top = 2.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    ReleasePill(info = release)
-                    Spacer(modifier = Modifier.weight(1f))
-                    val score = entry.score
-                    if (score != null && score > 0) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = "Score",
-                            tint = StarColor,
-                            modifier = Modifier.size(14.dp),
-                        )
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CategoryPill(category = entry.category)
+                            Spacer(modifier = Modifier.weight(1f))
+                            val score = entry.score
+                            if (score != null && score > 0) {
+                                ScoreBadge(score = score)
+                            }
+                        }
                         Text(
-                            text = "$score%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = colors.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 2.dp),
+                            text = entry.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 20.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 8.dp),
                         )
+                        if (entry.description.isNotBlank()) {
+                            Text(
+                                text = entry.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ReleasePill(info = release)
+                        Spacer(modifier = Modifier.weight(1f))
+                        val popularity = entry.popularity
+                        if (popularity != null && popularity > 0) {
+                            Icon(
+                                imageVector = Icons.Filled.Favorite,
+                                contentDescription = "Popularity",
+                                tint = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = formatCompactNumber(popularity),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 3.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -132,8 +167,9 @@ fun AnnouncementCard(
 }
 
 /**
- * Large "Up next" hero for the soonest dated release. One image + one static gradient:
- * looks rich, costs about the same as a regular card.
+ * Cinematic "Up next" hero: full-bleed banner, frosted chips, and the poster floating
+ * next to the title. One banner + one small poster + two static gradients — looks rich,
+ * costs about the same as a regular card.
  */
 @Composable
 fun FeaturedAnnouncementCard(
@@ -145,12 +181,13 @@ fun FeaturedAnnouncementCard(
     val release = releaseInfo(entry)
     val placeholder = entry.coverTint() ?: colors.surfaceContainerHighest
     val date = releaseDateText(entry)
+    val showPoster = entry.bannerImageUrl != null && entry.coverImageUrl != null
 
     Surface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(212.dp),
+            .height(AnnouncementHeroHeight),
         shape = AnnouncementHeroShape,
         color = placeholder,
     ) {
@@ -167,49 +204,81 @@ fun FeaturedAnnouncementCard(
                     .fillMaxSize()
                     .background(FeaturedScrim),
             )
-            Column(
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(FeaturedSideScrim),
+            )
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "UP NEXT",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.4.sp,
+                    color = colors.onPrimary,
+                    modifier = Modifier
+                        .background(colors.primary, CircleShape)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CategoryPill(category = entry.category, onImage = true)
+                Spacer(modifier = Modifier.weight(1f))
+                val score = entry.score
+                if (score != null && score > 0) {
+                    ScoreBadge(score = score, onImage = true)
+                }
+            }
+
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(18.dp),
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "UP NEXT",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
-                        color = colors.onPrimary,
-                        modifier = Modifier
-                            .background(colors.primary, CircleShape)
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                if (showPoster) {
+                    AnnouncementCover(
+                        url = entry.coverImageUrl,
+                        contentDescription = entry.title,
+                        placeholder = placeholder,
+                        shape = HeroPosterShape,
+                        borderColor = Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.size(width = HeroPosterWidth, height = HeroPosterHeight),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    CategoryPill(category = entry.category, onImage = true)
+                    Spacer(modifier = Modifier.width(14.dp))
                 }
-                Text(
-                    text = entry.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
-                Row(
-                    modifier = Modifier.padding(top = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ReleasePill(info = release)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = entry.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 26.sp,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (date != null) {
                         Text(
                             text = date,
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = Color.White.copy(alpha = 0.78f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 10.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+                    ReleasePill(
+                        info = release,
+                        onImage = true,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
                 }
             }
         }
@@ -217,14 +286,14 @@ fun FeaturedAnnouncementCard(
 }
 
 @Composable
-private fun AdultBadge() {
+private fun AdultBadge(modifier: Modifier = Modifier) {
     Text(
         text = "18+",
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onErrorContainer,
-        modifier = Modifier
+        modifier = modifier
             .background(MaterialTheme.colorScheme.errorContainer, CircleShape)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     )
 }
